@@ -22,7 +22,6 @@ class Exodus(object):
         self.z = None
         self.elem_var_names = None
         self.points = None
-        self._e = exodus(self._filename, self.mode)
 
         # Read File
         self._read()
@@ -109,10 +108,11 @@ class Exodus(object):
 
         assert self.mode in ['r', 'a'], "Attach field option only " \
                                         "available in mode 'r' or 'a'"
-        assert name in self._e.get_node_variable_names(), \
-            "Could not find the requested field"
 
         with exodus(self._filename, self.mode) as e:
+            assert name in e.get_node_variable_names(), \
+                "Could not find the requested field"
+
             values = e.get_node_variable_values(name=name, step=1)
         return values
 
