@@ -17,9 +17,6 @@ class Exodus(object):
         self.connectivity = None
         self.nodes_per_element = None
         self.nelem = None
-        self.x = None
-        self.y = None
-        self.z = None
         self.elem_var_names = None
         self.points = None
 
@@ -43,8 +40,7 @@ class Exodus(object):
                 self.connectivity, dtype='int64', ) - 1
 
             self.elem_var_names = e.get_element_variable_names()
-            self.x, self.y, self.z = e.get_coords()
-            self.points = np.array((self.x, self.y, self.z)).T
+            self.points = np.array((e.get_coords())).T
 
     def get_element_centroid(self):
         """
