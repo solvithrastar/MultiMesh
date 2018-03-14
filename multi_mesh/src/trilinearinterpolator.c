@@ -38,10 +38,8 @@ int checkHull(double pnt[3], double vtx[8][3], double solution[3]);
 
 // trilinear interpolation routine for hexahedral elements
 long long int triLinearInterpolator(
-    long long int nelem,                        // number of elements in mesh
         long long int nelem_to_search,          // number of elements to be tested for check hull for each point
         long long int npoints,                  // points to be interpolated
-        long long int npoints_mesh,             // npoints_mesh
         long long int *nearest_element_indices, // shape [npoints, nelem_to_search] specifies row nr in connectivity
         long long int *connectivity,            // connectivity of hexahedral elements
         long long int *enclosing_elem_indices,  // element indices of the enclosing element [npoints, nNodes]
@@ -201,7 +199,7 @@ int inverseCoordinateTransform(double pnt[3], double vtx[8][3], double solution[
 {
     double scalexy;
     double scale;
-    int max_iter = 15;
+    int max_iter = 20;
     double tol;
     int num_iter = 0;
     double update[3];
@@ -219,7 +217,7 @@ int inverseCoordinateTransform(double pnt[3], double vtx[8][3], double solution[
               fabs(vtx[1][0] - vtx[0][0]) : fabs(vtx[1][1] - vtx[0][1]);
     scale = fabs((vtx[1][2] - vtx[0][2])) > scalexy ? fabs(vtx[1][2] - vtx[0][2]) : scalexy;
 
-    tol = 1e-10 * scale;
+    tol = 1e-8 * scale;
     while (num_iter < max_iter)
     {
         coordinateTransform(solution, vtx, T);

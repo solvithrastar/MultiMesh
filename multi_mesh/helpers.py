@@ -53,8 +53,6 @@ def load_lib():
         lib.triLinearInterpolator.argtypes = [
             C.c_int,
             C.c_int,
-            C.c_int,
-            C.c_int,
             np.ctypeslib.ndpointer(dtype=np.int64, ndim=2,
                                    flags=['C_CONTIGUOUS']),
             np.ctypeslib.ndpointer(dtype=np.int64, ndim=2,
