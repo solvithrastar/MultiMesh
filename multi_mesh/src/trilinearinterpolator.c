@@ -70,7 +70,7 @@ long long int triLinearInterpolator(
                     vtx[k][l] = nodes[idx * nDim + l];              // fill vtx with element nodes
             }
 
-            //check if inside element, if trye get interpolation weights and node indices
+            //check if inside element, if true get interpolation weights and node indices
             if (checkHull(pnt, vtx, solution)){
                 interpolateAtPoint(solution, interpolator);         // fill interpolator with weights at ref. coords
                 for (n = 0; n < nNodes; n = n + 1){
