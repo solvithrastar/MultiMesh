@@ -163,30 +163,35 @@ def interpolate_gll_to_mesh(mesh, gll_model):
     start = time.time()
 
     # Read in gll model
-    gll = h5py.File(gll_model, 'r')
+    # gll = h5py.File(gll_model, 'r')
     # Compute centroids
     centroids = _find_gll_centroids(gll_model, 3)
     # Build a KDTree of the centroids to look for nearest elements
-    centroid_tree = cKDTree(centroids, balanced_tree=False)
+    print("Building KDTree")
+    centroid_tree = cKDTree(centroids, balanced_tree=True)
+    print("KDTree is built")
 
-    nelem_to_search = 20
+    nelem_to_search = 30
     # Read in mesh
+    print("Read in mesh")
     exodus = Exodus(mesh, mode="a")
     # Find nearest elements
+    print("Querying the KDTree")
     _, nearest_element_indices = centroid_tree.query(exodus.points, k=nelem_to_search)
     npoints = exodus.npoint
     values = np.zeros(shape=[npoints])
 
     s = 0
     for point in exodus.points:
-
-        element, ref_coord = _check_if_inside_element(gll,
-                                           nearest_element_indices[point, :],
+        print(s)
+        print(f"Nearest element indices: {nearest_element_indices[s,:]}")
+        element, ref_coord = _check_if_inside_element(gll_model,
+                                           nearest_element_indices[s, :],
                                            point)
 
         coeffs = salvus_fem.getInterpolationCoefficients(4, 4, 4, "MATRIX", "MATRIX", ref_coord)
-
-        values[s] = gll['MODEL']['DATA'][element, 0, :] * coeffs
+        with h5py.File(gll_model, 'r') as gll:
+            values[s] = gll['MODEL']['DATA'][element, 0, :] * coeffs
 
         s += 1
 
@@ -195,10 +200,16 @@ def interpolate_gll_to_mesh(mesh, gll_model):
     exodus.attach_field(param, values)
 
     end = time.time()
-    time_elapsed = end-start
+    runtime = end-start
+
+    if runtime >= 60:
+        runtime = runtime / 60
+        print(f"Finished in time: {runtime} minutes")
+    else:
+        print(f"Finished in time: {runtime} seconds")
 
 
-def _find_gll_centroids(gll, dimensions):
+def _find_gll_centroids(gll_model, dimensions):
     """
     A function to find the centroid coordinate of gll model
     :param gll: gll model object
@@ -206,45 +217,59 @@ def _find_gll_centroids(gll, dimensions):
     :return: array with 3 coordinates per element
     """
     import numpy as np
+    import h5py
+    with h5py.File(gll_model, 'r') as gll:
+        nelements = len(gll['MODEL']['coordinates'][:, 0, 0])
 
-    nelements = len(gll['MODEL']['coordinates'][:, 0, 0])
+        if dimensions != len(gll['MODEL']['coordinates'][0, 0, :]):
+            raise ValueError("Dimensions of GLL model not the same as input")
+        centroids = np.zeros(shape=[nelements, dimensions])
 
-    if dimensions != len(gll['MODEL']['coordinates'][0, 0, :]):
-        raise ValueError("Dimensions of GLL model not the same as input")
-    centroids = np.zeros(shape=[nelements, dimensions])
+        for d in range(dimensions):
+            centroids[:, d] = np.mean(gll['MODEL']['coordinates'][:, :, d], axis=1, dtype=np.float64)
 
-    for d in range(dimensions):
-        centroids[:, d] = np.mean(gll['MODEL']['coordinates'][:, :, d], axis=1)
-
+    print("Found centroids")
     return centroids
 
 
-def _check_if_inside_element(gll, centroids, nearest_elements, point):
+def _check_if_inside_element(gll_model, nearest_elements, point):
     """
     A function to figure out inside which element the point to be interpolated is.
     :param gll: gll model
-    :param centroids: an array of gll centroids, should not be needed
     :param nearest_elements: nearest elements of the point
     :param point: The actual point
     :return: the Index of the element which point is inside
     """
     import salvus_fem
     import numpy as np
+    import h5py
+    with h5py.File(gll_model, 'r') as gll:
+        for element in nearest_elements:
+            print(f"Element: {element}")
+            gll_points = gll['MODEL']['coordinates'][element, :, :].T
+            # gll_points = np.array(gll_points, order="F")
+            gll_points = np.asfortranarray(gll_points)
+            point = np.asfortranarray(point)
+            print(f"Point: {point}")
+            # print(gll_points.flags)
+            # print(point.flags)
+            # print(f"Shape gll: {gll_points.shape}, shape point: {point.shape}")
+            # np.require(gll_points, requirements=["F"])
+            # point = point.T
+            ref_coord = salvus_fem.hypercube.\
+                InverseCoordinateTransformWrapper(n=4, d=3, pnt=point,
+                                                  ctrlNodes=gll_points)
 
-    for element in nearest_elements:
-        gll_points = gll['MODEl']['coordinates'][element, :, :]
-        gll_points = np.array(gll_points, order="F")
-        ref_coord = salvus_fem.hypercube.\
-            InverseCoordinateTransformWrapper(n=4, d=3, pnt=point,
-                                              ctrlNodes=gll_points)
-        inside = True
-        for i in ref_coord:
-            for k in i:
-                if k < -1.0 or k > 1.0:
+            inside = True
+            print(f"ref coord: {ref_coord}")
+            for i in ref_coord:
+                if i < -1.2 or i > 1.2:
                     inside = False
+                    break
 
-        if inside:
-            return element, ref_coord
+            if inside:
+                print("Inside!")
+                return element, ref_coord
 
     raise IndexError("Could not find an element which this points fits into."
                      " Maybe you should add some tolerance")
