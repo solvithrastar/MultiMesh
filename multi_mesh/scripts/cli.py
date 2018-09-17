@@ -75,20 +75,22 @@ def interpolate_mesh_a_to_b(mesh_a, mesh_b, param):
 @click.option('--mesh', help="Salvus continuous exodus file.", required=True)
 @click.option('--gll_model', help="Salvus continuous exodus file.", required=True)
 @click.option('--gll_order', help="Order of polynomials inside your gll "
-                                  "model", default=4)
-@click.option('--param', help="parameter to interpolate.", required=False)
-def interpolate_mesh_to_gll(mesh, gll_model, gll_order, param):
+                                   "model", default=4)
+# @click.option('--param', help="parameter to interpolate.", required=False)
+def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
     """
     Interpolate values from normal exodus mesh to a smoothiesem gll model
     Keep this isotropic for now
     """
+    from pykdtree.kdtree import KDTree
 
     lib = load_lib()
     start = time.time()
     # Read in exodus mesh
     exodus = Exodus(mesh)
-    a_centroids = exodus.get_element_centroid()
-    centroid_tree = cKDTree(a_centroids, balanced_tree=False) # maybe true
+    centroids = exodus.get_element_centroid()
+    centroid_tree = KDTree(centroids)
+    # centroid_tree = cKDTree(centroids, balanced_tree=True, leafsize=8)  # maybe true
 
     # Read in gll model
     gll = h5py.File(gll_model, 'r+')
@@ -97,42 +99,55 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order, param):
     gll_coords = gll['MODEL']['coordinates']
     gll_points = (gll_order + 1) ** 3
 
-    nelem_to_search = 20
-    nearest_element_indices = np.zeros(shape=[gll_points, len(gll_coords), nelem_to_search], dtype=np.int64)
+    nelem_to_search = 10
+    npoints = len(gll_coords)
+    nearest_element_indices = np.zeros(shape=[npoints, gll_points, nelem_to_search], dtype=np.int64)
 
     for i in range(gll_points):
-        print(f"Finding element indices for gll point: {i+1}/{gll_points}")
-        _, nearest_element_indices[i, :, :] = centroid_tree.query(gll_coords[:, i, :], k=nelem_to_search)
+        if (i+1) % 10 == 0 or i == 124 or i == 0:
+            print(f"Finding element indices for gll point: {i+1}/{gll_points}")
+        _, nearest_element_indices[:, i, :] = centroid_tree.query(gll_coords[:, i, :], k=nelem_to_search)
 
-    npoints = len(gll_coords)
+    print(f"Shape of nearest: {nearest_element_indices.shape}")
+    nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
+    print(f"Now shape is: {nearest_element_indices.shape}")
 
     enclosing_elem_node_indices = np.zeros((gll_points, npoints, 8), dtype=np.int64)
     weights = np.zeros((gll_points, npoints, 8))
     permutation = [0, 3, 2, 1, 4, 5, 6, 7]
     i = np.argsort(permutation)
-    connectivity_reordered = exodus.connectivity[:, i]
+    connectivity_reordered = np.ascontiguousarray(exodus.connectivity[:, i])
+    exopoints = np.ascontiguousarray(exodus.points)
 
     for i in range(gll_points):
-        print(f"Trilinear interpolation for gll point: {i+1}/{gll_points}")
+        if (i+1) % 10 == 0 or i == 124 or i == 0:
+            print(f"Trilinear interpolation for gll point: {i+1}/{gll_points}")
         nfailed = lib.triLinearInterpolator(nelem_to_search,
                                             npoints,
-                                            nearest_element_indices[i, :, :],
-                                            np.ascontiguousarray(connectivity_reordered),
+                                            np.ascontiguousarray(nearest_element_indices[i, :, :]),
+                                            connectivity_reordered,
                                             enclosing_elem_node_indices[i, :, :],
-                                            np.ascontiguousarray(exodus.points),
+                                            exopoints,
                                             weights[i, :, :],
                                             np.ascontiguousarray(gll_coords[:, i, :]))
 
     # Lets just interpolate the first parameter
-
-    param_a = 'VPV'
-    param = exodus.get_nodal_field(param_a)
+    params = ["VSV", "VSH", "VPV", "VPH", "RHO"]
+    params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
+    params_gll = params_gll[2:-2].replace(" ", "").split("|")
     for i in range(gll_points):
-        print(f"Putting values onto gll points: {i+1}/{gll_points}")
-        values = np.sum(param[enclosing_elem_node_indices[i, :, :]] * weights[i, :, :], axis=1)
-
-
-        gll['MODEL']['data'][:, 2, i] = values
+        if (i+1) % 10 == 0 or i == 124 or i == 0:
+            print(f"Putting values onto gll points: {i+1}/{gll_points}")
+        for param in params:
+            param_node = exodus.get_nodal_field(param)
+            values = np.sum(param_node[enclosing_elem_node_indices[i, :, :]] * weights[i, :, :], axis=1)
+            s = 0
+            for param_gll in params_gll:
+                if param_gll != param:
+                    s += 1
+                    continue
+                gll['MODEL']['data'][:, s, i] = values
+                break
     end = time.time()
     runtime = end - start
 
@@ -167,7 +182,7 @@ def interpolate_gll_to_mesh(mesh, gll_model):
     """
 
     from multi_mesh.io.exodus import Exodus
-    from scipy.spatial import cKDTree
+    from pykdtree.kdtree import KDTree
     import h5py
     import time
     start = time.time()
@@ -182,19 +197,19 @@ def interpolate_gll_to_mesh(mesh, gll_model):
     print("centroids", np.shape(centroids))
     # Build a KDTree of the centroids to look for nearest elements
     print("Building KDTree")
-    centroid_tree = cKDTree(centroids, balanced_tree=True)
-    print("KDTree is built")
+    centroid_tree = KDTree(centroids)
 
-    nelem_to_search = 25
+    nelem_to_search = 10
     # Read in mesh
     print("Read in mesh")
     exodus = Exodus(mesh, mode="a")
     # Find nearest elements
     print("Querying the KDTree")
-    print("exodus.points" , np.shape(exodus.points))
     _, nearest_element_indices = centroid_tree.query(exodus.points[:], k=nelem_to_search)
     npoints = exodus.npoint
-    values = np.zeros(shape=[npoints])
+    params = gll_data.attrs.get("DIMENSION_LABELS")[1].decode()
+    params = params[2:-2].replace(" ", "").split("|")
+    values = np.zeros(shape=[npoints, len(params)])
 
     print("nearest_element_indices", np.shape(nearest_element_indices))
     s = 0
@@ -206,18 +221,21 @@ def interpolate_gll_to_mesh(mesh, gll_model):
                                            point)
 
         coeffs = get_coefficients(4, 4, 4, ref_coord)
-        # coeffs = salvus_fem.tensor_gll.GetInterpolationCoefficients(4, 4, 4, "Matrix", "Matrix", ref_coord)
         func = salvus_fem.tensor_gll.GetInterpolationCoefficients
-        values[s] = np.sum(gll_data[element, 2, :] * coeffs)
+        i = 0
+        for param in params:
+            values[s, i] = np.sum(gll_data[element, i, :] * coeffs)
+            i += 1
 
         if s % 20000 == 0:
             print(s)
         s += 1
 
-    param = "RHO"
-
-    exodus.attach_field(param, np.zeros_like(values))
-    exodus.attach_field(param, values)
+    i = 0
+    for param in params:
+        exodus.attach_field(param, np.zeros_like(values[:, i]))
+        exodus.attach_field(param, values[:, i])
+        i += 1
 
     end = time.time()
     runtime = end-start
@@ -240,6 +258,7 @@ def inverse_transform(point, gll_points):
     #                                       ctrlNodes=gll_points)
     return InverseCoordinateTransformWrapper(pnt=point, ctrlNodes=gll_points)
     # return salvus_fem._fcts[29][1](pnt=point, ctrlNodes=gll_points)
+
 
 def _find_gll_centroids(gll_coordinates, dimensions):
     """
@@ -277,7 +296,7 @@ def _check_if_inside_element(gll_model, nearest_elements, point):
 
         ref_coord = salvus_fem._fcts[29][1](pnt=point, ctrlNodes=gll_points)
 
-        if not np.any(np.abs(ref_coord) > 1.1):
+        if not np.any(np.abs(ref_coord) > 1.02):
             return element, ref_coord
 
     raise IndexError("Could not find an element which this points fits into."
@@ -286,8 +305,9 @@ def _check_if_inside_element(gll_model, nearest_elements, point):
 
 
 # gll_model = "/home/solvi/workspace/InterpolationTests/smoothiesem_nlat08.h5"
-# mesh = "/home/solvi/workspace/InterpolationTests/Globe3D_prem_iso_one_crust_100.e"
-# interpolate_gll_to_mesh(mesh, gll_model)
+# mesh = "/home/solvi/workspace/InterpolationTests/Globe3D_prem_ani_one_crust_25.e"
+# gll_order = 4
+# interpolate_mesh_to_gll(mesh, gll_model, 4)
 
 
 
