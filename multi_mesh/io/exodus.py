@@ -30,7 +30,7 @@ class Exodus(object):
         """
         with exodus(self._filename, self.mode) as e:
             self.ndim = e.num_dims
-            assert e.num_dims in [3], "Only '3D' exodus files are supported."
+            # assert e.num_dims in [3], "Only '3D' exodus files are supported."
             self.connectivity, self.nelem, self.nodes_per_element = \
                 e.get_elem_connectivity(id=1)
 
@@ -40,7 +40,7 @@ class Exodus(object):
                 self.connectivity, dtype='int64', ) - 1
 
             self.elem_var_names = e.get_element_variable_names()
-            self.points = np.array((e.get_coords())).T
+            self.points = np.array((e.get_coords())).T.astype(np.float64)
 
     def get_element_centroid(self):
         """
@@ -71,8 +71,13 @@ class Exodus(object):
                                               step=1, values=values)
 
             elif values.size == self.npoint:
+                # print(name)
                 idx = e.get_node_variable_names().index(name) + 1
+                # print(idx)
+                # print(name)
+                # print(e.get_node_variable_names())
                 e.put_node_variable_name(name, index=idx)
+                # print(e.get_node_variable_names())
                 e.put_node_variable_values(name, 1, values)
 
             else:

@@ -38,7 +38,7 @@ def interpolate_mesh_a_to_b(mesh_a, mesh_b, param):
     # Read Mesh A (exodus format)
     exodus_a = Exodus(mesh_a)
 
-    # Create KDTree from mesh a elemenet centroids
+    # Create KDTree from mesh a element centroids
     a_centroids = exodus_a.get_element_centroid()
     centroid_tree = cKDTree(a_centroids, balanced_tree=False)
 
@@ -76,6 +76,10 @@ def interpolate_mesh_a_to_b(mesh_a, mesh_b, param):
 @click.option('--gll_model', help="Salvus continuous exodus file.", required=True)
 @click.option('--gll_order', help="Order of polynomials inside your gll "
                                    "model", default=4)
+# @click.option('--params', help="Parameters you want to interpolate to gll, "
+#                                "default is 'ani', you can give a list of "
+#                                "parameters or just give 'iso' or 'ani'",
+#               required=False, default='ani', nargs="*")
 # @click.option('--param', help="parameter to interpolate.", required=False)
 def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
     """
@@ -94,12 +98,18 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
 
     # Read in gll model
     gll = h5py.File(gll_model, 'r+')
+    # if params == "ani":
+    #     params = ["VPV", "VPH", "VSV", "VSH", "RHO", "QKAPPA", "QMU", "ETA"]
+    # elif params == "iso":
+    #     params = ["VP", "VS", "RHO", "QKAPPA", "QMU", "ETA"]
+    # else:
+    #     params = list(params)
 
     # find coordinates in gll_model
     gll_coords = gll['MODEL']['coordinates']
     gll_points = (gll_order + 1) ** 3
 
-    nelem_to_search = 10
+    nelem_to_search = 20
     npoints = len(gll_coords)
     nearest_element_indices = np.zeros(shape=[npoints, gll_points, nelem_to_search], dtype=np.int64)
 
@@ -118,36 +128,58 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
     i = np.argsort(permutation)
     connectivity_reordered = np.ascontiguousarray(exodus.connectivity[:, i])
     exopoints = np.ascontiguousarray(exodus.points)
-
+    nfailed = 0
     for i in range(gll_points):
         if (i+1) % 10 == 0 or i == 124 or i == 0:
             print(f"Trilinear interpolation for gll point: {i+1}/{gll_points}")
-        nfailed = lib.triLinearInterpolator(nelem_to_search,
-                                            npoints,
-                                            np.ascontiguousarray(nearest_element_indices[i, :, :]),
-                                            connectivity_reordered,
-                                            enclosing_elem_node_indices[i, :, :],
-                                            exopoints,
-                                            weights[i, :, :],
-                                            np.ascontiguousarray(gll_coords[:, i, :]))
+        nfailed += lib.triLinearInterpolator(nelem_to_search,
+                                             npoints,
+                                             np.ascontiguousarray(nearest_element_indices[i, :, :]),
+                                             connectivity_reordered,
+                                             enclosing_elem_node_indices[i, :, :],
+                                             exopoints,
+                                             weights[i, :, :],
+                                             np.ascontiguousarray(gll_coords[:, i, :]))
 
+    assert nfailed is 0, f"{nfailed} points could not be interpolated."
     # Lets just interpolate the first parameter
-    params = ["VSV", "VSH", "VPV", "VPH", "RHO"]
+    # params = ["VSV", "VSH", "VPV", "VPH", "RHO"]
+    isoparams = ["VP", "VS", "RHO", "QKAPPA", "QMU"]
+    # params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
+    # params_gll = params_gll[2:-2].replace(" ", "").split("|")
+    params_gll = isoparams
+    # if "MODEL/data" in gll:
+    #     params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
+    #     params_gll = params_gll[2:-2].replace(" ", "").split("|")
+    #     if params_gll == params:
+    del gll['MODEL/data']
+    gll.create_dataset('MODEL/data', (npoints, len(isoparams), gll_points), dtype=np.float64)
+
+    gll['MODEL/data'].dims[0].label = 'element'
+    dimstr = '[ ' + ' | '.join(isoparams) + ' ]'
+    gll['MODEL/data'].dims[1].label = dimstr
+    gll['MODEL/data'].dims[2].label = 'point'
     params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
     params_gll = params_gll[2:-2].replace(" ", "").split("|")
-    for i in range(gll_points):
-        if (i+1) % 10 == 0 or i == 124 or i == 0:
-            print(f"Putting values onto gll points: {i+1}/{gll_points}")
-        for param in params:
-            param_node = exodus.get_nodal_field(param)
+    s = 0
+    # Maybe faster to just load all nodal fields to memory and use those
+    for param_gll in params_gll:
+        if param_gll == "VS":
+            param = "VS"
+        elif param_gll == "VP":
+            param = "VP"
+        else:
+            param = param_gll
+        param_node = exodus.get_nodal_field(param)
+        for i in range(gll_points):
+            if (i+1) % 10 == 0 or i == 124 or i == 0:
+                print(f"Putting values onto gll points: {i+1}/{gll_points} for "
+                      f"parameter {s+1}/{len(params_gll)} -- {param}")
+
             values = np.sum(param_node[enclosing_elem_node_indices[i, :, :]] * weights[i, :, :], axis=1)
-            s = 0
-            for param_gll in params_gll:
-                if param_gll != param:
-                    s += 1
-                    continue
-                gll['MODEL']['data'][:, s, i] = values
-                break
+
+            gll['MODEL']['data'][:, s, i] = values
+        s += 1
     end = time.time()
     runtime = end - start
 
@@ -157,7 +189,7 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
     else:
         print(f"Finished in time: {runtime} seconds")
 
-    assert nfailed is 0, f"{nfailed} points could not be interpolated."
+
 
 
 
@@ -184,6 +216,7 @@ def interpolate_gll_to_mesh(mesh, gll_model):
     from multi_mesh.io.exodus import Exodus
     from pykdtree.kdtree import KDTree
     import h5py
+    import sys
     import time
     start = time.time()
 
@@ -193,13 +226,14 @@ def interpolate_gll_to_mesh(mesh, gll_model):
     with h5py.File(gll_model, 'r') as gll:
         gll_points = gll['MODEL']['coordinates'][:]
         gll_data = gll['MODEL']['data'][:]
+        params = gll["MODEL/data"].attrs.get("DIMENSION_LABELS")[1].decode()
     centroids = _find_gll_centroids(gll_points, 3)
     print("centroids", np.shape(centroids))
     # Build a KDTree of the centroids to look for nearest elements
     print("Building KDTree")
     centroid_tree = KDTree(centroids)
 
-    nelem_to_search = 10
+    nelem_to_search = 20
     # Read in mesh
     print("Read in mesh")
     exodus = Exodus(mesh, mode="a")
@@ -207,9 +241,13 @@ def interpolate_gll_to_mesh(mesh, gll_model):
     print("Querying the KDTree")
     _, nearest_element_indices = centroid_tree.query(exodus.points[:], k=nelem_to_search)
     npoints = exodus.npoint
-    params = gll_data.attrs.get("DIMENSION_LABELS")[1].decode()
     params = params[2:-2].replace(" ", "").split("|")
+    print(f"Parameters to interpolate: {params}")
+    # sys.exit("Manual stop")
     values = np.zeros(shape=[npoints, len(params)])
+
+    # Temporary solution:
+
 
     print("nearest_element_indices", np.shape(nearest_element_indices))
     s = 0
@@ -232,9 +270,15 @@ def interpolate_gll_to_mesh(mesh, gll_model):
         s += 1
 
     i = 0
-    for param in params:
-        exodus.attach_field(param, np.zeros_like(values[:, i]))
-        exodus.attach_field(param, values[:, i])
+    for param_gll in params:
+        if param_gll == "VP":
+            param_exod = "VPV"
+        elif param_gll == "VS":
+            param_exod = "VSV"
+        else:
+            param_exod = param_gll
+        exodus.attach_field(param_exod, np.zeros_like(values[:, i]))
+        exodus.attach_field(param_exod, values[:, i])
         i += 1
 
     end = time.time()

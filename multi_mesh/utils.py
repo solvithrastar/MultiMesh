@@ -2,7 +2,7 @@
 A few functions to help out with specific tasks
 """
 import numpy as np
-from multi_mesh.io.exodus import Exodus
+from pyexodus import exodus
 
 def get_rot_matrix(angle, x, y, z):
     """
@@ -32,9 +32,9 @@ def get_rot_matrix(angle, x, y, z):
 
     return matrix
 
+
 def rotate(x, y, z, matrix):
     """
-
     :param x: x-coordinates to be rotated
     :param y: y-coordinates to be rotated
     :param z: z-coordinates to be rotated
@@ -58,24 +58,28 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     event_vec = [np.cos(event_loc[0]) * np.cos(event_loc[1]),
             np.cos(event_loc[0]) * np.sin(event_loc[1]),
             np.sin(event_loc[0])]
-    event_vec = np.normalize(np.array(event_vec))
+    event_vec = np.array(event_vec) / np.linalg.norm(event_vec)
     north_vec = np.array([0.0, 0.0, 1.0])
 
     rotate_axis = np.cross(event_vec, north_vec)
+    rotate_axis /= np.linalg.norm(rotate_axis)
     # Make sure that both axis and angle make sense with r-hand-rule
     rot_angle = np.arccos(np.dot(event_vec, north_vec))
-    rot_mat = get_rot_matrix(rot_angle, rot_angle[0], rot_angle[1],
-            rot_angle[2])
+    rot_mat = get_rot_matrix(rot_angle, rotate_axis[0], rotate_axis[1],
+                             rotate_axis[2])
     if backwards:
         rot_mat = rot_mat.T
 
-    mesh = Exodus(mesh)
-    rotated_points = rotate(x=mesh.points[:,0], y=mesh.points[:,1],
-            z=mesh.points[:,2], matrix=rot_mat)
+    mesh = exodus(mesh, mode="a")
+    points = mesh.get_coords()
+    rotated_points = rotate(x=points[0], y=points[1],
+                            z=points[2], matrix=rot_mat)
+    rotated_points = rotated_points.T
 
-    mesh.points = rotated_points
+    mesh.put_coords(rotated_points[:, 0], rotated_points[:, 1], rotated_points[:, 2])
 
-
+    # It's not rotating in the right direction but that remains to be
+    # configured properly.
 
 
 

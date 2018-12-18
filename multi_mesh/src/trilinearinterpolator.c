@@ -101,7 +101,7 @@ int checkHull(double pnt[3], double vtx[8][3], double solution[3])
         // if converged, check if inside element
         for (i = 0; i < 3; i = i + 1)
         {
-            if (fabs(solution[i]) > (1 + 0.025))
+            if (fabs(solution[i]) > (1 + 0.2))
                 return 0; // if not in element return False
         }
         return 1; // if converged and in element return true
