@@ -47,7 +47,7 @@ long long int triLinearInterpolator(
         double* weights,                        // matrix [npoints, nNodes] containg interpolation weights
         double* points)                         // points that require interpolation
 {
-    long long int i, j, k, l, m, n, idx;
+    long long int i, j, k, l, m, n, idx, ii;
     double vtx[8][3];
     double pnt[3];
     double solution[3];
@@ -61,12 +61,10 @@ long long int triLinearInterpolator(
     for (i=0; i<npoints; i = i + 1)
     {
         for (m = 0; m < nDim; m = m + 1)
-        {
-        pnt[m] = points[i * nDim + m];       // fill pnt
-        }
+            pnt[m] = points[i * nDim + m]; // fill pnt
 
-        smallest_error = 9999999999999.9;
-        best_elem_number = -1;
+        smallest_error = 99999999.9;
+        best_elem_number = 0;
         for (j = 0; j < nelem_to_search; j = j + 1){
             // Get element number from list of nearest elements
             elem_number = nearest_element_indices[i * nelem_to_search + j];
@@ -79,14 +77,16 @@ long long int triLinearInterpolator(
                 }
             }
 
+
             // checkhull, store ref coordinates along with elem_number for best solution
-            checkHull(pnt, vtx, solution);
-            max_error = 0.0;
-            for (i = 0; i < 3; i = i + 1)
+            if (checkHull(pnt, vtx, solution)){
+                max_error = 0.0;
+                for (ii = 0; ii < 3; ii = ii + 1)
             {
-                if (fabs(solution[i]) > max_error)
+                if (fabs(solution[ii]) > max_error)
                 {
-                max_error = fabs(solution[i]);
+                    max_error = fabs(solution[ii]);
+
                 }
             }
             // if max error small enough, simply proceed
@@ -98,12 +98,15 @@ long long int triLinearInterpolator(
                     weights[i * nNodes + n] = interpolator[n];
                     enclosing_elem_indices[i * nNodes + n] = connectivity[elem_number * nNodes + n];
                 }
+//                printf( "hello 1\n" );
+//                printf("The integer is %d\n", i);
                 break; //interpolation weights found, go to next point
             }
             else if (max_error <= smallest_error)
             {
                 smallest_error = max_error;
                 best_elem_number = elem_number;
+            }
             }
             else if  (j == nelem_to_search - 1)
             {
@@ -114,14 +117,19 @@ long long int triLinearInterpolator(
                     vtx[k][l] = nodes[idx * nDim + l];
                 }                  // fill vtx with element nodes
             }
-                checkHull(pnt, vtx, solution);
+                if (checkHull(pnt, vtx, solution))
+                {
                 interpolateAtPoint(solution, interpolator);         // fill interpolator with weights at ref. coords
                 for (n = 0; n < nNodes; n = n + 1)
                 {
                     weights[i * nNodes + n] = interpolator[n];
                     enclosing_elem_indices[i * nNodes + n] = connectivity[best_elem_number * nNodes + n];
                 }
+                }
+                else {
+
                 npoints_failed = npoints_failed + 1; // count number of points that failed
+                }
             }
         }
     }
@@ -143,7 +151,7 @@ int checkHull(double pnt[3], double vtx[8][3], double solution[3])
         // if converged, check if inside element
         for (i = 0; i < 3; i = i + 1)
         {
-            if (fabs(solution[i]) > (1 + 0.2))
+            if (fabs(solution[i]) > (1 + 2.0))
                 return 0; // if not in element return False
         }
         return 1; // if converged and in element return true
@@ -241,7 +249,7 @@ int inverseCoordinateTransform(double pnt[3], double vtx[8][3], double solution[
 {
     double scalexy;
     double scale;
-    int max_iter = 20;
+    int max_iter = 50;
     double tol;
     int num_iter = 0;
     double update[3];
