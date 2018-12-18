@@ -53,34 +53,76 @@ long long int triLinearInterpolator(
     double solution[3];
     double interpolator[8];
     long long int npoints_failed = 0;
+    double max_error;
+    double smallest_error;
 
     long long int elem_number;
-    for (i=0; i<npoints; i = i + 1){
+    long long int best_elem_number;
+    for (i=0; i<npoints; i = i + 1)
+    {
         for (m = 0; m < nDim; m = m + 1)
-            pnt[m] = points[i * nDim + m];       // fill pnt
+        {
+        pnt[m] = points[i * nDim + m];       // fill pnt
+        }
 
+        smallest_error = 9999999999999.9;
+        best_elem_number = -1;
         for (j = 0; j < nelem_to_search; j = j + 1){
-            //Get element number from list of nearest elements
+            // Get element number from list of nearest elements
             elem_number = nearest_element_indices[i * nelem_to_search + j];
-
-
-            for (k = 0; k < nNodes; k = k + 1){
+            for (k = 0; k < nNodes; k = k + 1)
+            {
                 idx = connectivity[elem_number * nNodes + k];       // get node number for each node
                 for (l = 0; l < nDim; l = l + 1)
-                    vtx[k][l] = nodes[idx * nDim + l];              // fill vtx with element nodes
+                {
+                vtx[k][l] = nodes[idx * nDim + l];              // fill vtx with element nodes
+                }
             }
 
-            //check if inside element, if true get interpolation weights and node indices
-            if (checkHull(pnt, vtx, solution)){
+            // checkhull, store ref coordinates along with elem_number for best solution
+            checkHull(pnt, vtx, solution);
+            max_error = 0.0;
+            for (i = 0; i < 3; i = i + 1)
+            {
+                if (fabs(solution[i]) > max_error)
+                {
+                max_error = fabs(solution[i]);
+                }
+            }
+            // if max error small enough, simply proceed
+            if (max_error < (1 + 0.025))
+            {
                 interpolateAtPoint(solution, interpolator);         // fill interpolator with weights at ref. coords
-                for (n = 0; n < nNodes; n = n + 1){
+                for (n = 0; n < nNodes; n = n + 1)
+                {
                     weights[i * nNodes + n] = interpolator[n];
                     enclosing_elem_indices[i * nNodes + n] = connectivity[elem_number * nNodes + n];
                 }
                 break; //interpolation weights found, go to next point
             }
+            else if (max_error <= smallest_error)
+            {
+                smallest_error = max_error;
+                best_elem_number = elem_number;
+            }
             else if  (j == nelem_to_search - 1)
+            {
+            for (k = 0; k < nNodes; k = k + 1){
+                idx = connectivity[best_elem_number * nNodes + k];       // get node number for each node
+                for (l = 0; l < nDim; l = l + 1)
+                {
+                    vtx[k][l] = nodes[idx * nDim + l];
+                }                  // fill vtx with element nodes
+            }
+                checkHull(pnt, vtx, solution);
+                interpolateAtPoint(solution, interpolator);         // fill interpolator with weights at ref. coords
+                for (n = 0; n < nNodes; n = n + 1)
+                {
+                    weights[i * nNodes + n] = interpolator[n];
+                    enclosing_elem_indices[i * nNodes + n] = connectivity[best_elem_number * nNodes + n];
+                }
                 npoints_failed = npoints_failed + 1; // count number of points that failed
+            }
         }
     }
     return npoints_failed;
