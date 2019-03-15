@@ -83,11 +83,20 @@ def gll_2_gll(cartesian, smoothie):
     nelem_to_search = 15
     smoothie = h5py.File(smoothie, 'r+')
 
-    smoothie_points = np.array(smoothie['ELASTIC/coordinates'][:], dtype=np.float64)
-    smoothie_data = smoothie['ELASTIC/data']
+    smoothie_points = np.array(smoothie['MODEL/coordinates'][:], dtype=np.float64)
+    smoothie_data = smoothie['MODEL/data']
+    smoothie_params = smoothie["MODEL/data"].attrs.get("DIMENSION_LABELS")[1].decode()
+    smoothie_params = smoothie_params[2:-2].replace(" ", "").split("|")
+
+    pip
+    print(smoothie_params)
+    map={}
+    for param in params:
+        map[param] = smoothie_params.index(param)
+    print(map)
 
     gll_points = (4 + 1) ** 2
-    values = np.zeros(shape=[1, smoothie_points.shape[0], len(params), gll_points])
+    values = np.zeros(shape=[smoothie_points.shape[0], len(params), gll_points])
 
     nearest_element_indices = np.zeros(shape=[smoothie_points.shape[0],
                                               gll_points, nelem_to_search],
@@ -102,10 +111,10 @@ def gll_2_gll(cartesian, smoothie):
             # print(f"gll point: {i}")
             point = smoothie_points[s, i, :]
             if point[0] < 0.0 or point[0] > 1.4e6:
-                values[0, s, :, i] = smoothie_data[0, s, :, i]
+                values[s, :, i] = smoothie_data[s, :, i]
                 continue
             if point[1] < 0.0 or point[1] > 1.4e6:
-                values[0, s, :, i] = smoothie_data[0, s, :, i]
+                values[s, :, i] = smoothie_data[s, :, i]
                 continue
             element, ref_coord = _check_if_inside_element(
                 cart_points, nearest_element_indices[s, i, :], point)
@@ -114,17 +123,17 @@ def gll_2_gll(cartesian, smoothie):
             k = 0
             for param in params:
                 # print(f"Parameter: {param}")
-                values[0, s, k, i] = np.sum(cart_data[0, element, k, :] * coeffs)
+
+                values[s, map[param], i] = np.sum(cart_data[0, element, k, :] * coeffs)
                 k += 1
-    del smoothie['ELASTIC/data']
-    smoothie.create_dataset('ELASTIC/data', data=values, dtype='f4')
-    smoothie['ELASTIC/data'].dims[0].label = 'time'
-    smoothie['ELASTIC/data'].dims[1].label = 'element'
+    del smoothie['MODEL/data']
+    smoothie.create_dataset('MODEL/data', data=values, dtype='f4')
+    smoothie['MODEL/data'].dims[0].label = 'element'
 
     dimstr = '[ ' + ' | '.join(params) + ' ]'
-    smoothie['ELASTIC/data'].dims[2].label = dimstr
+    smoothie['MODEL/data'].dims[1].label = dimstr
     # smoothie['ELASTIC/new_data'] = values
-    smoothie['ELASTIC/data'].dims[3].label = 'point'
+    smoothie['MODEL/data'].dims[2].label = 'point'
 
 
 # I can definitely combine a few of these functions when I clean this up.
@@ -431,7 +440,6 @@ def sum_exodus_fields(collection_mesh, added_mesh, components, first=True):
         exodus_a.attach_field(component, param)
 
 
-
 def get_coefficients(a, b, c, ref_coord, dimension):
     # return tensor_gll.GetInterpolationCoefficients(a, b, c, "Matrix", "Matrix", ref_coord)
     # return salvus_fem._fcts[867][1](ref_coord)
@@ -489,7 +497,7 @@ def _check_if_inside_element(gll_model, nearest_elements, point):
 
         ref_coord = inverse_transform(point=point, gll_points=gll_points, dimension=2)
         #salvus_fem._fcts[29][1]
-        if not np.any(np.abs(ref_coord) > 1.02):
+        if not np.any(np.abs(ref_coord) > 1.00):
             return element, ref_coord
 
     warnings.warn("Could not find an element which this points fits into."

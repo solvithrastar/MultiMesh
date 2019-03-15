@@ -64,7 +64,7 @@ long long int triLinearInterpolator(
             pnt[m] = points[i * nDim + m]; // fill pnt
 
         smallest_error = 99999999.9;
-        best_elem_number = 0;
+        best_elem_number = -1;
         for (j = 0; j < nelem_to_search; j = j + 1){
             // Get element number from list of nearest elements
             elem_number = nearest_element_indices[i * nelem_to_search + j];
@@ -98,18 +98,22 @@ long long int triLinearInterpolator(
                     weights[i * nNodes + n] = interpolator[n];
                     enclosing_elem_indices[i * nNodes + n] = connectivity[elem_number * nNodes + n];
                 }
-//                printf( "hello 1\n" );
-//                printf("The integer is %d\n", i);
+
                 break; //interpolation weights found, go to next point
+//                printf("after %d\n", j);
             }
-            else if (max_error <= smallest_error)
+            else if (max_error < smallest_error)
             {
                 smallest_error = max_error;
                 best_elem_number = elem_number;
+//                printf("%d place 1 ", best_elem_number);
             }
+
             }
-            else if  (j == nelem_to_search - 1)
+            if  ((j == nelem_to_search - 1) && (smallest_error < 1.5) && (best_elem_number >= 0))
             {
+//            printf("smallest_error %f\n", smallest_error);
+//            printf("%d place 2 ", best_elem_number);
             for (k = 0; k < nNodes; k = k + 1){
                 idx = connectivity[best_elem_number * nNodes + k];       // get node number for each node
                 for (l = 0; l < nDim; l = l + 1)
@@ -127,9 +131,16 @@ long long int triLinearInterpolator(
                 }
                 }
                 else {
-
+                printf("not any %f\n", smallest_error);
                 npoints_failed = npoints_failed + 1; // count number of points that failed
                 }
+            }
+            else if (j == nelem_to_search - 1){
+//            printf("before %f\n", max_error);
+//            printf("before %f\n", smallest_error);
+                printf("not any %f\n", smallest_error);
+                npoints_failed = npoints_failed + 1;
+
             }
         }
     }
@@ -151,8 +162,9 @@ int checkHull(double pnt[3], double vtx[8][3], double solution[3])
         // if converged, check if inside element
         for (i = 0; i < 3; i = i + 1)
         {
-            if (fabs(solution[i]) > (1 + 2.0))
-                return 0; // if not in element return False
+            if (fabs(solution[i]) > (1 + 1.0)){
+                return 0;
+            }
         }
         return 1; // if converged and in element return true
     }

@@ -26,8 +26,8 @@ def cli():
 @cli.command()
 @click.option('--mesh_a', help="Salvus continuous exodus file.", required=True)
 @click.option('--mesh_b', help="Salvus continuous exodus file.", required=True)
-@click.option('--param', help="parameter to interpolate.", required=True)
-def interpolate_mesh_a_to_b(mesh_a, mesh_b, param):
+# @click.option('--params', help="parameter to interpolate.", required=True, type=list)
+def interpolate_mesh_a_to_b(mesh_a, mesh_b):
     """Interpolates values from mesh A onto mesh B, exodus to exodus"""
     from multi_mesh.io.exodus import Exodus
     from scipy.spatial import cKDTree
@@ -35,6 +35,7 @@ def interpolate_mesh_a_to_b(mesh_a, mesh_b, param):
     from multi_mesh.helpers import load_lib
     lib = load_lib()
 
+    params = ["VSH", "VSV", "VPV", "VPH", "RHO", "ETA", "QKAPPA", "QMU"]
     # Read Mesh A (exodus format)
     exodus_a = Exodus(mesh_a)
 
@@ -54,6 +55,9 @@ def interpolate_mesh_a_to_b(mesh_a, mesh_b, param):
     i = np.argsort(permutation)
     connectivity_reordered = exodus_a.connectivity[:, i]
 
+    # if with_topography:
+
+
     nfailed = lib.triLinearInterpolator(nelem_to_search,
                                         npoints,
                                         nearest_element_indices,
@@ -63,10 +67,11 @@ def interpolate_mesh_a_to_b(mesh_a, mesh_b, param):
                                         weights,
                                         np.ascontiguousarray(exodus_b.points))
 
-    param_a = exodus_a.get_nodal_field(param)
-    values = np.sum(param_a[enclosing_elem_node_indices] * weights, axis=1)
-    exodus_b.attach_field(param, np.zeros_like(values))
-    exodus_b.attach_field(param, values)
+    for param in params:
+        param_a = exodus_a.get_nodal_field(param)
+        values = np.sum(param_a[enclosing_elem_node_indices] * weights, axis=1)
+        exodus_b.attach_field(param, np.zeros_like(values))
+        exodus_b.attach_field(param, values)
 
     assert nfailed is 0, f"{nfailed} points could not be interpolated."
 
@@ -106,12 +111,12 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
     #     params = list(params)
 
     # find coordinates in gll_model
-    gll_coords = gll['MODEL']['coordinates']
+    gll_coords = gll['ELASTIC']['coordinates']
     gll_points = (gll_order + 1) ** 3
 
     nelem_to_search = 20
     npoints = len(gll_coords)
-    nearest_element_indices = np.zeros(shape=[npoints, gll_points, nelem_to_search], dtype=np.int64)
+    nearest_element_indices = np.zeros(shavpe=[npoints, gll_points, nelem_to_search], dtype=np.int64)
 
     for i in range(gll_points):
         if (i+1) % 10 == 0 or i == 124 or i == 0:
@@ -139,37 +144,39 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
                                              enclosing_elem_node_indices[i, :, :],
                                              exopoints,
                                              weights[i, :, :],
-                                             np.ascontiguousarray(gll_coords[:, i, :]))
+                                             np.ascontiguousarray(gll_coords[:, i, :], dtype=np.float64))
 
     assert nfailed is 0, f"{nfailed} points could not be interpolated."
     # Lets just interpolate the first parameter
     # params = ["VSV", "VSH", "VPV", "VPH", "RHO"]
     isoparams = ["VP", "VS", "RHO", "QKAPPA", "QMU"]
+    ttiparams = ["VPV", "VPH", "VSV", "VSH", "RHO", "ETA", "QKAPPA", "QMU"]
     # params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
     # params_gll = params_gll[2:-2].replace(" ", "").split("|")
-    params_gll = isoparams
+    params_gll = ttiparams
     # if "MODEL/data" in gll:
     #     params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
     #     params_gll = params_gll[2:-2].replace(" ", "").split("|")
     #     if params_gll == params:
-    del gll['MODEL/data']
-    gll.create_dataset('MODEL/data', (npoints, len(isoparams), gll_points), dtype=np.float64)
+    del gll['ELASTIC/data']
+    gll.create_dataset('ELASTIC/data', (1, npoints, len(ttiparams), gll_points), dtype=np.float64)
 
-    gll['MODEL/data'].dims[0].label = 'element'
-    dimstr = '[ ' + ' | '.join(isoparams) + ' ]'
-    gll['MODEL/data'].dims[1].label = dimstr
-    gll['MODEL/data'].dims[2].label = 'point'
-    params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
+    gll['ELASTIC/data'].dims[0].label = 'time'
+    gll['ELASTIC/data'].dims[1].label = 'element'
+    dimstr = '[ ' + ' | '.join(ttiparams) + ' ]'
+    gll['ELASTIC/data'].dims[2].label = dimstr
+    gll['ELASTIC/data'].dims[3].label = 'point'
+    params_gll = gll["ELASTIC"]["data"].attrs.get("DIMENSION_LABELS")[2].decode()
     params_gll = params_gll[2:-2].replace(" ", "").split("|")
     s = 0
     # Maybe faster to just load all nodal fields to memory and use those
     for param_gll in params_gll:
-        if param_gll == "VS":
-            param = "VS"
-        elif param_gll == "VP":
-            param = "VP"
-        else:
-            param = param_gll
+        # if param_gll == "VS":
+        #     param = "VS"
+        # elif param_gll == "VP":
+        #     param = "VP"
+        # else:
+        param = param_gll
         param_node = exodus.get_nodal_field(param)
         for i in range(gll_points):
             if (i+1) % 10 == 0 or i == 124 or i == 0:
@@ -178,7 +185,7 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
 
             values = np.sum(param_node[enclosing_elem_node_indices[i, :, :]] * weights[i, :, :], axis=1)
 
-            gll['MODEL']['data'][:, s, i] = values
+            gll['ELASTIC']['data'][0, :, s, i] = values
         s += 1
     end = time.time()
     runtime = end - start
