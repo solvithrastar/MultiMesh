@@ -2,6 +2,7 @@ import click
 import warnings
 
 from multi_mesh.io.exodus import Exodus
+
 from scipy.spatial import cKDTree
 import numpy as np
 from multi_mesh.helpers import load_lib
@@ -111,12 +112,12 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
     #     params = list(params)
 
     # find coordinates in gll_model
-    gll_coords = gll['ELASTIC']['coordinates']
+    gll_coords = gll['MODEL']['coordinates']
     gll_points = (gll_order + 1) ** 3
 
     nelem_to_search = 20
     npoints = len(gll_coords)
-    nearest_element_indices = np.zeros(shavpe=[npoints, gll_points, nelem_to_search], dtype=np.int64)
+    nearest_element_indices = np.zeros(shape=[npoints, gll_points, nelem_to_search], dtype=np.int64)
 
     for i in range(gll_points):
         if (i+1) % 10 == 0 or i == 124 or i == 0:
@@ -149,43 +150,44 @@ def interpolate_mesh_to_gll(mesh, gll_model, gll_order):
     assert nfailed is 0, f"{nfailed} points could not be interpolated."
     # Lets just interpolate the first parameter
     # params = ["VSV", "VSH", "VPV", "VPH", "RHO"]
-    isoparams = ["VP", "VS", "RHO", "QKAPPA", "QMU"]
+    isoparams = ["RHO", "VP", "VS", "QKAPPA", "QMU"]
     ttiparams = ["VPV", "VPH", "VSV", "VSH", "RHO", "ETA", "QKAPPA", "QMU"]
     # params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
     # params_gll = params_gll[2:-2].replace(" ", "").split("|")
-    params_gll = ttiparams
+    params_gll = isoparams
+    exodusparams = ttiparams
     # if "MODEL/data" in gll:
     #     params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
     #     params_gll = params_gll[2:-2].replace(" ", "").split("|")
     #     if params_gll == params:
-    del gll['ELASTIC/data']
-    gll.create_dataset('ELASTIC/data', (1, npoints, len(ttiparams), gll_points), dtype=np.float64)
+    del gll['MODEL/data']
+    gll.create_dataset('MODEL/data', (npoints, len(isoparams), gll_points), dtype=np.float64)
 
-    gll['ELASTIC/data'].dims[0].label = 'time'
-    gll['ELASTIC/data'].dims[1].label = 'element'
-    dimstr = '[ ' + ' | '.join(ttiparams) + ' ]'
-    gll['ELASTIC/data'].dims[2].label = dimstr
-    gll['ELASTIC/data'].dims[3].label = 'point'
-    params_gll = gll["ELASTIC"]["data"].attrs.get("DIMENSION_LABELS")[2].decode()
+    # gll['MODEL/data'].dims[0].label = 'time'
+    gll['MODEL/data'].dims[0].label = 'element'
+    dimstr = '[ ' + ' | '.join(isoparams) + ' ]'
+    gll['MODEL/data'].dims[1].label = dimstr
+    gll['MODEL/data'].dims[2].label = 'point'
+    params_gll = gll["MODEL"]["data"].attrs.get("DIMENSION_LABELS")[1].decode()
     params_gll = params_gll[2:-2].replace(" ", "").split("|")
     s = 0
     # Maybe faster to just load all nodal fields to memory and use those
     for param_gll in params_gll:
-        # if param_gll == "VS":
-        #     param = "VS"
-        # elif param_gll == "VP":
-        #     param = "VP"
-        # else:
-        param = param_gll
+        if param_gll == "VS":
+            param = "VSV"
+        elif param_gll == "VP":
+            param = "VPV"
+        else:
+            param = param_gll
         param_node = exodus.get_nodal_field(param)
         for i in range(gll_points):
             if (i+1) % 10 == 0 or i == 124 or i == 0:
                 print(f"Putting values onto gll points: {i+1}/{gll_points} for "
-                      f"parameter {s+1}/{len(params_gll)} -- {param}")
+                      f"parameter {s+1}/{len(params_gll)} -- {param_gll}")
 
             values = np.sum(param_node[enclosing_elem_node_indices[i, :, :]] * weights[i, :, :], axis=1)
 
-            gll['ELASTIC']['data'][0, :, s, i] = values
+            gll['MODEL']['data'][:, s, i] = values
         s += 1
     end = time.time()
     runtime = end - start
@@ -264,10 +266,10 @@ def interpolate_gll_to_mesh(mesh, gll_model):
         element, ref_coord = _check_if_inside_element(gll_points,
                                            nearest_element_indices[s, :],
                                            point)
-
         coeffs = get_coefficients(4, 4, 4, ref_coord)
         func = salvus_fem.tensor_gll.GetInterpolationCoefficients
         i = 0
+
         for param in params:
             values[s, i] = np.sum(gll_data[element, i, :] * coeffs)
             i += 1
@@ -278,12 +280,12 @@ def interpolate_gll_to_mesh(mesh, gll_model):
 
     i = 0
     for param_gll in params:
-        if param_gll == "VP":
-            param_exod = "VPV"
-        elif param_gll == "VS":
-            param_exod = "VSV"
-        else:
-            param_exod = param_gll
+        if param_gll == 'FemMassMatrix':
+            continue
+        if param_gll == "RHO":
+            continue
+
+        param_exod = param_gll
         exodus.attach_field(param_exod, np.zeros_like(values[:, i]))
         exodus.attach_field(param_exod, values[:, i])
         i += 1
@@ -341,17 +343,28 @@ def _check_if_inside_element(gll_model, nearest_elements, point):
     :return: the Index of the element which point is inside
     """
     point = np.asfortranarray(point)
+    ref_coords = np.zeros(len(nearest_elements))
+    l = 0
     for element in nearest_elements:
         gll_points = gll_model[element, :, :]
         gll_points = np.asfortranarray(gll_points)
 
-        ref_coord = salvus_fem._fcts[29][1](pnt=point, ctrlNodes=gll_points)
+        # ref_coord = salvus_fem._fcts[29][1](pnt=point, ctrlNodes=gll_points)
+        ref_coord = inverse_transform(point=point, gll_points=gll_points)
+        ref_coords[l] = np.sum(np.abs(ref_coord))
+        l += 1
 
         if not np.any(np.abs(ref_coord) > 1.02):
             return element, ref_coord
 
-    raise IndexError("Could not find an element which this points fits into."
-                     " Maybe you should add some tolerance")
+    ind = np.where(ref_coords == np.min(ref_coords))[0][0]
+    element = nearest_elements[ind]
+    ref_coord = inverse_transform(point=point, gll_points=np.asfortranarray(
+                                            gll_model[element, :, :]))
+    print(f"didn't find a good fit. ref_coord: {ref_coord}")
+    return element, ref_coord
+    # raise IndexError("Could not find an element which this points fits into."
+    #                  " Maybe you should add some tolerance")
 
 
 

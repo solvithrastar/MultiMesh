@@ -10,8 +10,11 @@ import numpy as np
 import salvus_fem
 # Buffer the salvus_fem functions, so accessing becomes much faster
 for name, func in salvus_fem._fcts:
-    if name == "__GetInterpolationCoefficients__int_n0_1__int_n1_1__int_n2_0__Matrix_Derive" \
-               "dA_Eigen::Matrix<double, 2, 1>__Matrix_DerivedB_Eigen::Matrix<double, 4, 1>":
+    # if name == "__GetInterpolationCoefficients__int_n0_1__int_n1_1__int_n2_0__Matrix_Derive" \
+    #            "dA_Eigen::Matrix<double, 2, 1>__Matrix_DerivedB_Eigen::Matrix<double, 4, 1>":
+    #     GetInterpolationCoefficients3D = func
+    if name == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_4__Matrix_Derive" \
+               "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 125, 1>":
         GetInterpolationCoefficients3D = func
     if name == "__InverseCoordinateTransformWrapper__int_n_4__int_d_3":
         InverseCoordinateTransformWrapper3D = func
@@ -30,7 +33,7 @@ def exodus_2_gll(mesh, gll_model):  #NOT FUNCTIONAL
     """
     lib = load_lib()
     order = 4
-    dimensions = 2
+    dimensions = 3
     exodus = Exodus(mesh)
 
     centroids = exodus.get_element_centroid()
@@ -83,12 +86,11 @@ def gll_2_gll(cartesian, smoothie):
     nelem_to_search = 15
     smoothie = h5py.File(smoothie, 'r+')
 
-    smoothie_points = np.array(smoothie['MODEL/coordinates'][:], dtype=np.float64)
-    smoothie_data = smoothie['MODEL/data']
-    smoothie_params = smoothie["MODEL/data"].attrs.get("DIMENSION_LABELS")[1].decode()
+    smoothie_points = np.array(smoothie['ELASTIC/coordinates'][:], dtype=np.float64)
+    smoothie_data = smoothie['ELASTIC/data']
+    smoothie_params = smoothie["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
     smoothie_params = smoothie_params[2:-2].replace(" ", "").split("|")
 
-    pip
     print(smoothie_params)
     map={}
     for param in params:
@@ -96,7 +98,7 @@ def gll_2_gll(cartesian, smoothie):
     print(map)
 
     gll_points = (4 + 1) ** 2
-    values = np.zeros(shape=[smoothie_points.shape[0], len(params), gll_points])
+    values = np.zeros(shape=[1, smoothie_points.shape[0], len(params), gll_points])
 
     nearest_element_indices = np.zeros(shape=[smoothie_points.shape[0],
                                               gll_points, nelem_to_search],
@@ -104,17 +106,17 @@ def gll_2_gll(cartesian, smoothie):
     for i in range(gll_points):
         _, nearest_element_indices[:, i, :] = cart_centroid_tree.query(
             smoothie_points[:, i, :], k=nelem_to_search)
-
+    print(f"smoothie_point.shape: {smoothie_points.shape[0]}")
     for s in range(smoothie_points.shape[0]):
         # print(f"Element: {s}")
         for i in range(gll_points):
             # print(f"gll point: {i}")
             point = smoothie_points[s, i, :]
             if point[0] < 0.0 or point[0] > 1.4e6:
-                values[s, :, i] = smoothie_data[s, :, i]
+                values[0, s, :, i] = smoothie_data[0, s, :, i]
                 continue
             if point[1] < 0.0 or point[1] > 1.4e6:
-                values[s, :, i] = smoothie_data[s, :, i]
+                values[0, s, :, i] = smoothie_data[0, s, :, i]
                 continue
             element, ref_coord = _check_if_inside_element(
                 cart_points, nearest_element_indices[s, i, :], point)
@@ -123,17 +125,97 @@ def gll_2_gll(cartesian, smoothie):
             k = 0
             for param in params:
                 # print(f"Parameter: {param}")
-
-                values[s, map[param], i] = np.sum(cart_data[0, element, k, :] * coeffs)
+                # print(k)
+                # print(i)
+                values[0, s, map[param], i] = np.sum(cart_data[0, element, k, :] * coeffs)
                 k += 1
-    del smoothie['MODEL/data']
-    smoothie.create_dataset('MODEL/data', data=values, dtype='f4')
-    smoothie['MODEL/data'].dims[0].label = 'element'
+    del smoothie['ELASTIC/data']
+    smoothie.create_dataset('ELASTIC/data', data=values, dtype='f4')
+    smoothie['ELASTIC/data'].dims[0].label = 'time'
+    smoothie['ELASTIC/data'].dims[1].label = 'element'
 
     dimstr = '[ ' + ' | '.join(params) + ' ]'
-    smoothie['MODEL/data'].dims[1].label = dimstr
+    smoothie['ELASTIC/data'].dims[2].label = dimstr
     # smoothie['ELASTIC/new_data'] = values
-    smoothie['MODEL/data'].dims[2].label = 'point'
+    smoothie['ELASTIC/data'].dims[3].label = 'point'
+
+
+def gll_2_gll_3D(gll_a, gll_b, order):
+    """
+    Interpolate parameters from 2D cartesian gll mesh to a 2D smoothiesem
+    gll mesh
+    :param gll_a: path to mesh to interpolate from
+    :param gll_b: path to mesh to interpolate to
+    :param order: polynomial order of the gll basi
+    """
+
+    with h5py.File(gll_a, 'r') as gll_a:
+        gll_a_points = np.array(gll_a['MODEL/coordinates'][:], dtype=np.float64)
+        gll_a_data = gll_a['MODEL/data'][:]
+        params = gll_a["MODEL/data"].attrs.get("DIMENSION_LABELS")[1].decode()
+        params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
+
+    gll_a_centroids = _find_gll_centroids(gll_a_points, 3)
+    print(gll_a_centroids.shape)
+
+    gll_a_centroid_tree = KDTree(gll_a_centroids)
+
+    nelem_to_search = 25
+    gll_b = h5py.File(gll_b, 'r+')
+
+    gll_b_points = np.array(gll_b['MODEL/coordinates'][:], dtype=np.float64)
+    map = {}
+    # if 'MODEL/data' in gll_b:
+    #     gll_b_data = gll_b['MODEL/data']
+    #     gll_b_params = gll_b["MODEL/data"].attrs.get("DIMENSION_LABELS")[1].decode()
+    #     gll_b_params = gll_b_params[2:-2].replace(" ", "").split("|")
+    #
+    #     print(gll_b_params)
+    #
+    #     for param in params:
+    #         map[param] = gll_b_params.index(param)
+
+    # else:
+    i = 0
+    for param in params:
+        map[param] = i
+        i += 1
+    gll_points = (order + 1) ** 2
+    values = np.zeros(shape=[gll_b_points.shape[0], len(params), gll_points])
+
+    nearest_element_indices = np.zeros(shape=[gll_b_points.shape[0],
+                                              gll_points, nelem_to_search],
+                                       dtype=np.int64)
+    for i in range(gll_points):
+        _, nearest_element_indices[:, i, :] = gll_a_centroid_tree.query(
+            gll_b_points[:, i, :], k=nelem_to_search)
+    print(f"gll_b_point.shape: {gll_b_points.shape[0]}")
+    for s in range(gll_b_points.shape[0]):
+        # print(f"Element: {s}")
+        for i in range(gll_points):
+            # print(f"gll point: {i}")
+            point = gll_b_points[s, i, :]
+
+            element, ref_coord = _check_if_inside_element(
+                gll_a_points, nearest_element_indices[s, i, :], point, 3)
+            # print(ref_coord)
+            coeffs = get_coefficients(4, 4, 4, ref_coord, 3)
+            # print(coeffs.shape)
+            k = 0
+            for param in params:
+
+                values[s, map[param], i] = np.sum(gll_a_data[element, k, :] * coeffs)
+                k += 1
+    if 'MODEL/data' in gll_b:
+        del gll_b['MODEL/data']
+    gll_b.create_dataset('MODEL/data', data=values, dtype='f4')
+    # gll_b['MODEL/data'].dims[0].label = 'time'
+    gll_b['MODEL/data'].dims[0].label = 'element'
+
+    dimstr = '[ ' + ' | '.join(params) + ' ]'
+    gll_b['MODEL/data'].dims[1].label = dimstr
+    # gll_b['MODEL/new_data'] = values
+    gll_b['MODEL/data'].dims[2].label = 'point'
 
 
 # I can definitely combine a few of these functions when I clean this up.
@@ -481,7 +563,7 @@ def _find_gll_centroids(gll_coordinates, dimensions):
     return centroids
 
 
-def _check_if_inside_element(gll_model, nearest_elements, point):
+def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     """
     A function to figure out inside which element the point to be interpolated is.
     :param gll: gll model
@@ -491,22 +573,29 @@ def _check_if_inside_element(gll_model, nearest_elements, point):
     """
     import warnings
     point = np.asfortranarray(point, dtype=np.float64)
+    ref_coords = np.zeros(len(nearest_elements))
+    l = 0
     for element in nearest_elements:
         gll_points = gll_model[element, :, :]
         gll_points = np.asfortranarray(gll_points)
 
-        ref_coord = inverse_transform(point=point, gll_points=gll_points, dimension=2)
+        ref_coord = inverse_transform(point=point, gll_points=gll_points, dimension=dimension)
+        ref_coords[l] = np.sum(np.abs(ref_coord))
+        l += 1
         #salvus_fem._fcts[29][1]
-        if not np.any(np.abs(ref_coord) > 1.00):
+        if not np.any(np.abs(ref_coord) > 1.0):
             return element, ref_coord
 
     warnings.warn("Could not find an element which this points fits into."
                   " Maybe you should add some tolerance."
-                  " Will return the first searched element")
-    element = nearest_elements[0]
+                  " Will return the best searched element")
+    ind = np.where(ref_coords == np.min(ref_coords))[0][0]
+    # ind = ref_coords.index(ref_coords == np.min(ref_coords))
+    element = nearest_elements[ind]
+
     ref_coord = inverse_transform(point=point,
                                   gll_points=np.asfortranarray(gll_model[element,:,:], dtype=np.float64),
-                                  dimension=2)
+                                  dimension=dimension)
     # element = None
     # ref_coord = None
 
