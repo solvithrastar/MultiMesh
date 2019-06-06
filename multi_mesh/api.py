@@ -25,6 +25,13 @@ for name, func in salvus_fem._fcts:
         InverseCoordinateTransformWrapper2D = func
 
 
+"""
+In here we have many interpolation routines. Currently there is quite a bit of
+code repetition since most of this was done to solve a specific application
+at the time. Hopefully I'll have time one day to make it more abstract.
+"""
+
+
 def exodus_2_gll(mesh, gll_model):  #NOT FUNCTIONAL
     """
     Interpolate parameters between exodus file and hdf5 gll file
@@ -63,7 +70,7 @@ def exodus_2_gll(mesh, gll_model):  #NOT FUNCTIONAL
     nfailed = 0
 
 
-def gll_2_gll(cartesian, smoothie):
+def gll_2_gll(exodus, gll):
     """
     Interpolate parameters from 2D cartesian gll mesh to a 2D smoothiesem
     gll mesh
@@ -72,7 +79,7 @@ def gll_2_gll(cartesian, smoothie):
     :return: smoothiesem mesh with new interpolated parameters on it.
     """
 
-    with h5py.File(cartesian, 'r') as cart:
+    with h5py.File(exodus, 'r') as cart:
         cart_points = np.array(cart['ELASTIC/coordinates'][:], dtype=np.float64)
         cart_data = cart['ELASTIC/data'][:]
         params = cart["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
@@ -84,18 +91,20 @@ def gll_2_gll(cartesian, smoothie):
     cart_centroid_tree = KDTree(cart_centroids)
 
     nelem_to_search = 15
-    smoothie = h5py.File(smoothie, 'r+')
+    smoothie = h5py.File(gll, 'r+')
 
     smoothie_points = np.array(smoothie['ELASTIC/coordinates'][:], dtype=np.float64)
     smoothie_data = smoothie['ELASTIC/data']
     smoothie_params = smoothie["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
     smoothie_params = smoothie_params[2:-2].replace(" ", "").split("|")
 
-    print(smoothie_params)
+
     map={}
+    # make a mapping dictionary between different permutations of
+    # parameters
+
     for param in params:
         map[param] = smoothie_params.index(param)
-    print(map)
 
     gll_points = (4 + 1) ** 2
     values = np.zeros(shape=[1, smoothie_points.shape[0], len(params), gll_points])
@@ -112,6 +121,7 @@ def gll_2_gll(cartesian, smoothie):
         for i in range(gll_points):
             # print(f"gll point: {i}")
             point = smoothie_points[s, i, :]
+            # Next two checks are only used in a current project
             if point[0] < 0.0 or point[0] > 1.4e6:
                 values[0, s, :, i] = smoothie_data[0, s, :, i]
                 continue
@@ -124,9 +134,6 @@ def gll_2_gll(cartesian, smoothie):
             coeffs = get_coefficients(4, 4, 0, ref_coord, 2)
             k = 0
             for param in params:
-                # print(f"Parameter: {param}")
-                # print(k)
-                # print(i)
                 values[0, s, map[param], i] = np.sum(cart_data[0, element, k, :] * coeffs)
                 k += 1
     del smoothie['ELASTIC/data']
@@ -140,7 +147,7 @@ def gll_2_gll(cartesian, smoothie):
     smoothie['ELASTIC/data'].dims[3].label = 'point'
 
 
-def gll_2_gll_3D(gll_a, gll_b, order):
+def gll_2_gll_3d(gll_a, gll_b, order):
     """
     Interpolate parameters from 2D cartesian gll mesh to a 2D smoothiesem
     gll mesh
@@ -218,7 +225,6 @@ def gll_2_gll_3D(gll_a, gll_b, order):
     gll_b['MODEL/data'].dims[2].label = 'point'
 
 
-# I can definitely combine a few of these functions when I clean this up.
 def gll_2_gll_gradients(simulation, master, first=True):
     """
     Interpolate gradient from simulation mesh to master model. All hdf5 format.
@@ -292,13 +298,6 @@ def gll_2_gll_gradients(simulation, master, first=True):
                 values[0, s, k, i] = np.sum(sim_data[0, element, k, :] * coeffs)
                 k += 1
     if not first:
-        # master_params = master["ELASTIC/data"].attrs.get("DIMENSION_LABELS")
-        # [2].decode()
-        # master_params = master_params[2:-2].replace(" ", "").replace("grad", "").split("|")
-        # index_map = {}
-        # for i in range(len(master_params)):
-        #     if master_params[i] in params:
-        #         index_map[i] = params.index(master_params[i])
         for key, value in index_map.items():
             values[0, :, value, :] += master_data[0, :, key, :]
 
@@ -310,7 +309,6 @@ def gll_2_gll_gradients(simulation, master, first=True):
         i = "grad" + i
     dimstr = '[ ' + ' | '.join(params) + ' ]'
     master['ELASTIC/data'].dims[2].label = dimstr
-    # smoothie['ELASTIC/new_data'] = values
     master['ELASTIC/data'].dims[3].label = 'point'
 
 
@@ -379,8 +377,6 @@ def gradient_2_cartesian_exodus(gradient, cartesian, params, first=False):
     :param first: If this is the first gradient, it will overwrite fields
     :return: Gradient interpolated to a cartesian mesh.
     """
-    from scipy.spatial import cKDTree
-
     lib = load_lib()
 
     exodus_a = Exodus(gradient, mode="a")
@@ -388,33 +384,26 @@ def gradient_2_cartesian_exodus(gradient, cartesian, params, first=False):
     print(f"Exodus shape: {exodus_a.points.shape}")
     points = np.array(exodus_a.points, dtype=np.float64)
     exodus_a.points = points
-    # points = points[:, :2]
-
-    print(f"Exodus a shape: {exodus_a.points.shape}")
 
     a_centroids = exodus_a.get_element_centroid()
-    print(f"centroids shape: {a_centroids.shape}")
-    print("Fooling centroid to think we are in three dimensions")
-    a_centroids = np.concatenate((a_centroids, np.zeros(shape=(a_centroids.shape[0], 1))), axis=1)
-    print(f"centroids shape: {a_centroids.shape}")
 
-    # centroids = a_centroids[:, :2]
+    # The trilinear interpolator only works in 3D so we fool it to think
+    # we are working in 3D
+    a_centroids = np.concatenate((a_centroids, np.zeros(
+        shape=(a_centroids.shape[0], 1))), axis=1)
+
     centroid_tree = KDTree(a_centroids)
 
     nelem_to_search = 20
     exodus_b = Exodus(cartesian, mode="a")
-    # points_b = exodus_b.points[:, :2]
-    print(f"Exodus b shape {exodus_b.points.shape}")
 
     _, nearest_element_indices = centroid_tree.query(exodus_b.points, k=nelem_to_search)
-    print("Got past the nearest elements")
     nearest_element_indices = np.array(nearest_element_indices, dtype=np.int64)
 
     npoints = exodus_b.npoint
     enclosing_element_node_indices = np.zeros((npoints, 4), dtype=np.int64)
     weights = np.zeros((npoints, 4))
     connectivity = exodus_a.connectivity[:, :]
-    print("I even got here but trilinear dude is not helpful")
     nfailed = lib.triLinearInterpolator(nelem_to_search,
                                         npoints,
                                         nearest_element_indices,
@@ -425,7 +414,6 @@ def gradient_2_cartesian_exodus(gradient, cartesian, params, first=False):
                                         np.ascontiguousarray(exodus_b.points))
 
     assert nfailed is 0, f"{nfailed} points could not be interpolated"
-    print(f"Weights shape: {weights.shape}")
 
     for param in params:
         param_a = exodus_a.get_nodal_field(param)
@@ -455,11 +443,8 @@ def gradient_2_cartesian_hdf5(gradient, cartesian, first=False):
         params = grad["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
         params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
         params = params[1:-1]
-        # print(f" Parameters to be interpolated: {params}")
-        # print(f"Number of elements in gradient: {len(grad_points)}")
-        # print(f"Shape of grad_points: {grad_points.shape}")
+
     print(params)
-    # params = ['MU']
 
     grad_centroids = _find_gll_centroids(grad_points, 2)
     centroid_tree = KDTree(grad_centroids)
@@ -469,7 +454,6 @@ def gradient_2_cartesian_hdf5(gradient, cartesian, first=False):
 
     _, nearest_element_indices = centroid_tree.query(cartesian.points[:, :2], k=nelem_to_search)
     npoints = cartesian.npoint
-    # print(f"Number of points: {npoints}")
 
     values = np.zeros(shape=[npoints, len(params)])
     scaling_factor = 1.0  #34825988.0
@@ -493,8 +477,6 @@ def gradient_2_cartesian_hdf5(gradient, cartesian, first=False):
                            scaling_factor  # I do a k+1 because I'm not using RHO
             k += 1
 
-        # if s % 1000 == 0:
-        #     print(f"{s}/{npoints}")
         s += 1
     i = 0
     for param in params:
