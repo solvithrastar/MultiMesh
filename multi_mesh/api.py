@@ -45,72 +45,8 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
     """
     start = time.time()
     from multi_mesh.components.interpolator import exodus_2_gll
-    
-    exodus_2_gll(mesh, gll_model, gll_order, dimensions, nelem_to_search, parameters)
-    # lib = load_lib()
-    # exodus, centroid_tree = utils.load_exodus(mesh, find_centroids=True)
-    #
-    # gll = h5py.File(gll_model, 'r+')
-    #
-    # gll_coords = gll['MODEL/coordinates']
-    # npoints = gll_coords.shape[0]
-    # gll_points = gll_coords.shape[1]
-    #
-    # nearest_element_indices = np.zeros(shape=[npoints, gll_points,
-    # nelem_to_search], dtype=np.int64)
-    #
-    # for i in range(gll_points):
-    #     _, nearest_element_indices[:, i, :] =  centroid_tree.query(gll_coords[:, i, :], k=nelem_to_search)
-    #
-    # nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
-    #
-    # enclosing_elem_node_indices = np.zeros((gll_points, npoints, 8), dtype=np.int64)
-    # weights = np.zeros((gll_points, npoints, 8))
-    # permutation = [0, 3, 2, 1, 4, 5, 6, 7]
-    # i = np.argsort(permutation)
-    #
-    # # i = np.argsort(permutation)
-    # connectivity = np.ascontiguousarray(exodus.connectivity[:,i])
-    # exopoints = np.ascontiguousarray(exodus.points)
-    # nfailed = 0
-    #
-    # parameters = utils.pick_parameters(parameters)
-    # utils.remove_and_create_empty_dataset(gll, parameters)
-    # param_exodus = np.zeros(shape=(len(parameters), len(exodus.get_nodal_field(parameters[0]))))
-    # values = np.zeros(shape=(len(parameters), len(exodus.get_nodal_field(parameters[0]))))
-    # for _i, param in enumerate(parameters):
-    #     param_exodus[_i,:] = exodus.get_nodal_field(param)
-    #
-    # for i in range(gll_points):
-    #     if (i+1) % 10 == 0 or i == gll_points-1 or i == 0:
-    #         print(f"Trilinear interpolation for gll point: {i+1}/{gll_points}")
-    #     nfailed += lib.triLinearInterpolator(nelem_to_search,
-    #                                          npoints,
-    #                                          np.ascontiguousarray(
-    #                                              nearest_element_indices[
-    #                                              i, :, :]),
-    #                                          connectivity,
-    #                                          enclosing_elem_node_indices[
-    #                                          i, :, :],
-    #                                          exopoints,
-    #                                          weights[i, :, :],
-    #                                          np.ascontiguousarray(
-    #                                              gll_coords[:, i, :]))
-    #     assert nfailed is 0, f"{nfailed} points could not be interpolated."
-    #     values = np.sum(param_exodus[:,enclosing_elem_node_indices[i,:,:]]*weights[i,:,:], axis=2)
-    #
-    #     gll['MODEL/data'][:,:,i] = values.T
 
-    # s = 0
-    # for i in range(gll_points):
-    #     if (i+1) % 10 ==  0 or i == gll_points - 1 or i == 0:
-    #         print(f"Putting values onto gll points: {i+1}/{gll_points} for "
-    #               f"parameter {s+1}/{len(params_gll)} -- {param}")
-    #     for param in parameters:
-    #         values = np.sum(param_exodus[param][enclosing_elem_node_indices[i, :, :]] * weights[i, :, :], axis=1)
-    #
-    #         gll['MODEL/data'][:, s, i] = values
-    # s += 1
+    exodus_2_gll(mesh, gll_model, gll_order, dimensions, nelem_to_search, parameters)
 
     end = time.time()
     runtime = end - start
@@ -130,17 +66,16 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, 
     :param from_gll_order: order of gll_model
     :param dimensions: dimension of meshes.
     :param nelem_to_search: amount of elements to check
-    :param parameters: Parameters to be interolated, possible to pass, "ISO", "TTI" or a list of parameters.
+    :param parameters: Parameters to be interpolated, possible to pass, "ISO", "TTI" or a list of parameters.
     :return: gll_mesh with new model on it
     """
 
-    with h5py.File(from_gll, 'r') as original:
-        original_points = np.array(original['MODEL/coordinates'][:], dtype=np.float64)
-        original_data = original['MODEL/data'][:]
-        orig_params = original["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[1].decode()
-        orig_params = orig_params[2:-2].replace(" ", "").replace("grad", "").split("|")
+    original_points, original_data, original_params = utils.load_hdf5_params_to_memory(from_gll)
+
 
     parameters = utils.pick_parameters(parameters)
+    assert set(parameters) <= set(original_params), "Original mesh does not have all the parameters you wish to interpolate."
+
     original_centroids = _find_gll_centroids(original_points, dimension)
 
     original_centroid_tree = KDTree(original_centroids)
@@ -148,15 +83,35 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, 
     new = h5py.File(to_gll, 'r+')
 
     new_points = np.array(new['MODEL/coordinates'][:], dtype=np.float64)
-    if 'MODEL/data' in new:
-        utils.remove_and_create_empty_dataset(new, parameters)
+    utils.remove_and_create_empty_dataset(new, parameters)
+
     # new_data = new['MODEL/data']
     # new_params = smoothie["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
     # smoothie_params = smoothie_params[2:-2].replace(" ", "").split("|")
 
-    map={}
-    for param in parameters:
-        map[param] = orig_params.index(param)
+    permutation = list(len(parameters))
+    for _i, param in enumerate(parameters):
+        permutation[_i] = original_params.index(param)
+
+    # In case we are not interpolating all the parameters.
+    if len(permutation) != original_params.shape[1]:
+        for i in range(original_params.shape[1] - len(permutation)):
+            permutation.append(np.max(permutation) + 1)
+
+    # Check if there is some need for reordering of parameters.
+    reorder = False
+    for i in range(len(permutation)):
+        if i == 0:
+            if permutation[i] != 0:
+                reorder = True
+                break
+        else:
+            if permutation[i] != permutation[i-1] + 1:
+                reorder = True
+                break
+    if reorder:
+        i = np.argsort(permutation)
+        original_params = original_params[:, i, :]
 
     gll_points = new['MODEL/coordinates'].shape[1]
     values = np.zeros(shape=[new_points.shape[0], len(parameters), gll_points])
@@ -182,10 +137,11 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, 
                 original_points, nearest_element_indices[s, i, :], point)
 
             coeffs = get_coefficients(from_gll_order, to_gll_order, 4, ref_coord, dimension)
-            k = 0
-            for param in params:
-                values[s, k, i] = np.sum(original_data[element, map[param], :] * coeffs)
-                k += 1
+            # k = 0
+            values[s,:,i] = np.sum(original_data[element, [0:len(parameters)], :] * coeffs), axis=2)
+            # for param in params:
+            #     values[s, k, i] = np.sum(original_data[element, map[param], :] * coeffs)
+            #     k += 1
 
     new['MODEL/data'] = values
     # smoothie.create_dataset('ELASTIC/data', data=values, dtype='f4')

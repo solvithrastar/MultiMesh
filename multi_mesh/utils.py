@@ -129,3 +129,17 @@ def load_exodus(file, find_centroids=True):
         return exodus, centroid_tree
     else:
         return exodus
+
+
+def load_hdf5_params_to_memory(gll):
+    """
+    Load coordinates, data and parameter list from and hdf5 file into memory
+    """
+
+    with h5py.File(gll, 'r') as mesh:
+        points = np.array(mesh['MODEL/coordinates'][:], dtype=np.float64)
+        data = mesh['MODEL/data'][:]
+        params = mesh['MODEL/data'].attrs.get("DIMENSION_LABELS")[1].decode()
+        params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
+
+    return points, data, params
