@@ -61,7 +61,7 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
 
     nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
 
-    enclosing_elem_node_indices = np.zeros((gll_points, npoints, 8))
+    enclosing_elem_node_indices = np.zeros((gll_points, npoints, 8), dtype=np.int64)
     weights = np.zeros((gll_points, npoints, 8))
     permutation = [0, 3, 2, 1, 4, 5, 6, 7]
     i = np.argsort(permutation)
@@ -71,12 +71,10 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
     exopoints = np.ascontiguousarray(exodus.points)
     nfailed = 0
 
-    values = np.zeros_like(gll['MODEL/data'][:, 0, 0])
-
     parameters = utils.pick_parameters(parameters)
     utils.remove_and_create_empty_dataset(gll, parameters)
-    param_exodus = np.zeros(shape=(len(parameters), npoints))
-    values = np.zeros(shape=(len(parameters), npoints))
+    param_exodus = np.zeros(shape=(len(parameters), len(exodus.get_nodal_field(parameters[0]))))
+    values = np.zeros(shape=(len(parameters), len(exodus.get_nodal_field(parameters[0]))))
     for _i, param in enumerate(parameters):
         param_exodus[_i,:] = exodus.get_nodal_field(param)
 
@@ -87,19 +85,18 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
                                              npoints,
                                              np.ascontiguousarray(
                                                  nearest_element_indices[
-                                                 i, :, :]),
+                                                 i, :, :], dtype=np.int64),
                                              connectivity,
                                              enclosing_elem_node_indices[
                                              i, :, :],
                                              exopoints,
                                              weights[i, :, :],
                                              np.ascontiguousarray(
-                                                 gll_coords[:, i, :],
-                                                 dtype=np.float64))
+                                                 gll_coords[:, i, :]))
         assert nfailed is 0, f"{nfailed} points could not be interpolated."
         values = np.sum(param_exodus[:,enclosing_elem_node_indices[i,:,:]]*weights[i,:,:], axis=2)
 
-        gll['Model/data'][:,:,i] = values
+        gll['MODEL/data'][:,:,i] = values.T
 
     # s = 0
     # for i in range(gll_points):

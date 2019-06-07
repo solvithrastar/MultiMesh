@@ -89,12 +89,13 @@ def remove_and_create_empty_dataset(gll_model, parameters: list):
     Take gll dataset, delete it and create an empty one ready for the new
     set of parameters that are to be input to the mesh.
     """
-    del gll_model['MODEL/data']
-    gll_model.create_dataset(gll_model['MODEL/coordinates'].shape[0], len(parameters), gll_model['MODEL/coordinates'].shape[1], dtype=np.float64)
+    if 'MODEL/data' in gll_model:
+        del gll_model['MODEL/data']
+    gll_model.create_dataset(name='MODEL/data', shape=(gll_model['MODEL/coordinates'].shape[0], len(parameters), gll_model['MODEL/coordinates'].shape[1]), dtype=np.float64)
 
     create_dimension_labels(gll_model, parameters)
 
-def create_dimension_labels(gll_model, parameters: list):
+def create_dimension_labels(gll, parameters: list):
     """
     Create the dimstring which is needed in the h5 meshes.
     :param gll_model: The gll mesh which needs the new dimstring
