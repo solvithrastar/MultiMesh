@@ -97,7 +97,7 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
                                                  gll_coords[:, i, :],
                                                  dtype=np.float64))
         assert nfailed is 0, f"{nfailed} points could not be interpolated."
-        values = np.sum(param_exodus[:,enclosing_elem_node_indices[i,:,:]]*weights[i,:,:]axis=2)
+        values = np.sum(param_exodus[:,enclosing_elem_node_indices[i,:,:]]*weights[i,:,:], axis=2)
 
         gll['Model/data'][:,:,i] = values
 

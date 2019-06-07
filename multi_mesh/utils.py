@@ -3,6 +3,9 @@ A few functions to help out with specific tasks
 """
 import numpy as np
 from pyexodus import exodus
+from multi_mesh.io.exodus import Exodus
+from pykdtree.kdtree import KDTree
+
 
 def get_rot_matrix(angle, x, y, z):
     """
@@ -111,3 +114,17 @@ def pick_parameters(parameters):
         parameters = parameters
 
     return parameters
+
+
+def load_exodus(file, find_centroids=True):
+    """
+    Load an exodus file into the Exodus class and potentially find the centroid values. The function returns a KDTree with the centroids.
+    """
+
+    exodus = Exodus(file)
+    if find_centroids:
+        centroids = exodus.get_element_centroid()
+        centroid_tree = KDTree(centroids)
+        return exodus, centroid_tree
+    else:
+        return exodus
