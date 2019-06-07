@@ -54,7 +54,7 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     :param event_loc: location of event to be rotated to N [lat, lon]
     :param backwards: Backrotation uses transpose of rot matrix
     """
-    
+
     event_vec = [np.cos(event_loc[0]) * np.cos(event_loc[1]),
             np.cos(event_loc[0]) * np.sin(event_loc[1]),
             np.sin(event_loc[0])]
@@ -81,7 +81,33 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     # It's not rotating in the right direction but that remains to be
     # configured properly.
 
+def remove_and_create_empty_dataset(gll_model, parameters: list):
+    """
+    Take gll dataset, delete it and create an empty one ready for the new
+    set of parameters that are to be input to the mesh.
+    """
+    del gll_model['MODEL/data']
+    gll_model.create_dataset(gll_model['MODEL/coordinates'].shape[0], len(parameters), gll_model['MODEL/coordinates'].shape[1], dtype=np.float64)
 
+    create_dimension_labels(gll_model, parameters)
 
+def create_dimension_labels(gll_model, parameters: list):
+    """
+    Create the dimstring which is needed in the h5 meshes.
+    :param gll_model: The gll mesh which needs the new dimstring
+    :param parameters: The parameters which should be in the dimstring
+    """
+    dimstr = '[ ' + ' | '.join(parameters) + ' ]'
+    gll['MODEL/data'].dims[0].label = 'element'
+    gll['MODEL/data'].dims[1].label = dimstr
+    gll['MODEL/data'].dims[2].label = 'point'
 
+def pick_parameters(parameters):
+    if parameters == "TTI":
+        parameters = ["VPV", "VPH", "VSV", "VSH", "RHO", "ETA", "QKAPPA", "QMU"]
+    elif parameters == "ISO":
+        parameters = ["RHO", "VP", "VS", "QKAPPA", "QMU"]
+    else:
+        parameters = parameters
 
+    return parameters

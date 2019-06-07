@@ -19,6 +19,7 @@ class Exodus(object):
         self.nelem = None
         self.elem_var_names = None
         self.points = None
+        self.nodal_parameters = None
 
         # Read File
         self._read()
@@ -41,6 +42,7 @@ class Exodus(object):
 
             self.elem_var_names = e.get_element_variable_names()
             self.points = np.array((e.get_coords())).T.astype(np.float64)
+            self.nodal_parameters = e.get_node_variable_names()
 
     def get_element_centroid(self):
         """
