@@ -33,7 +33,7 @@ at the time. Hopefully I'll have time one day to make it more abstract.
 """
 
 
-def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI"):
+def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI", model_path="MODEL/data", coordinates_path="MODEL/coordinates"):
     """
     Interpolate parameters between exodus file and hdf5 gll file. Only works in 3 dimensions.
     :param mesh: The exodus file
@@ -46,7 +46,7 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
     start = time.time()
     from multi_mesh.components.interpolator import exodus_2_gll
 
-    exodus_2_gll(mesh, gll_model, gll_order, dimensions, nelem_to_search, parameters)
+    exodus_2_gll(mesh, gll_model, gll_order, dimensions, nelem_to_search, parameters, model_path, coordinates_path)
 
     end = time.time()
     runtime = end - start
@@ -58,7 +58,8 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
         print(f"Finished in time: {runtime} seconds")
 
 
-def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI"):
+def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI", from_model_path="MODEL/data", to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates",
+to_coordinates_path="MODEL/coordinates"):
     """
     Interpolate parameters between two gll models.
     :param from_gll: path to gll mesh to interpolate from
@@ -70,7 +71,7 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, 
     :return: gll_mesh with new model on it
     """
 
-    original_points, original_data, original_params = utils.load_hdf5_params_to_memory(from_gll)
+    original_points, original_data, original_params = utils.load_hdf5_params_to_memory(from_gll, from_model_path, from_coordinates_path)
 
 
     parameters = utils.pick_parameters(parameters)
@@ -82,7 +83,7 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, 
 
     new = h5py.File(to_gll, 'r+')
 
-    new_points = np.array(new['MODEL/coordinates'][:], dtype=np.float64)
+    new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
     utils.remove_and_create_empty_dataset(new, parameters)
 
     # new_data = new['MODEL/data']
@@ -113,7 +114,7 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, 
         i = np.argsort(permutation)
         original_params = original_params[:, i, :]
 
-    gll_points = new['MODEL/coordinates'].shape[1]
+    gll_points = new[to_coordinates_path].shape[1]
     values = np.zeros(shape=[new_points.shape[0], len(parameters), gll_points])
 
     nearest_element_indices = np.zeros(shape=[new_points.shape[0],
@@ -143,7 +144,7 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, 
             #     values[s, k, i] = np.sum(original_data[element, map[param], :] * coeffs)
             #     k += 1
 
-    new['MODEL/data'] = values
+    new[to_model_path] = values
     # smoothie.create_dataset('ELASTIC/data', data=values, dtype='f4')
     # smoothie['ELASTIC/data'].dims[0].label = 'time'
     # smoothie['ELASTIC/data'].dims[1].label = 'element'

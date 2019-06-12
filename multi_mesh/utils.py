@@ -84,14 +84,14 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     # It's not rotating in the right direction but that remains to be
     # configured properly.
 
-def remove_and_create_empty_dataset(gll_model, parameters: list):
+def remove_and_create_empty_dataset(gll_model, parameters: list, model: str, coordinates: str):
     """
     Take gll dataset, delete it and create an empty one ready for the new
     set of parameters that are to be input to the mesh.
     """
-    if 'MODEL/data' in gll_model:
-        del gll_model['MODEL/data']
-    gll_model.create_dataset(name='MODEL/data', shape=(gll_model['MODEL/coordinates'].shape[0], len(parameters), gll_model['MODEL/coordinates'].shape[1]), dtype=np.float64)
+    if model in gll_model:
+        del gll_model[model]
+    gll_model.create_dataset(name=model, shape=(gll_model[coordinates].shape[0], len(parameters), gll_model[coordinates].shape[1]), dtype=np.float64)
 
     create_dimension_labels(gll_model, parameters)
 
@@ -117,7 +117,7 @@ def pick_parameters(parameters):
     return parameters
 
 
-def load_exodus(file, find_centroids=True):
+def load_exodus(file: (str, path), find_centroids=True: bool):
     """
     Load an exodus file into the Exodus class and potentially find the centroid values. The function returns a KDTree with the centroids.
     """
@@ -131,15 +131,15 @@ def load_exodus(file, find_centroids=True):
         return exodus
 
 
-def load_hdf5_params_to_memory(gll):
+def load_hdf5_params_to_memory(gll: (str, path), model: str, coordinates: str):
     """
     Load coordinates, data and parameter list from and hdf5 file into memory
     """
 
     with h5py.File(gll, 'r') as mesh:
-        points = np.array(mesh['MODEL/coordinates'][:], dtype=np.float64)
-        data = mesh['MODEL/data'][:]
-        params = mesh['MODEL/data'].attrs.get("DIMENSION_LABELS")[1].decode()
+        points = np.array(mesh[coordinates][:], dtype=np.float64)
+        data = mesh[model][:]
+        params = mesh[model].attrs.get("DIMENSION_LABELS")[1].decode()
         params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
 
     return points, data, params

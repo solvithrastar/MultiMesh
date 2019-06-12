@@ -8,7 +8,7 @@ from multi_mesh import utils
 from pykdtree.kdtree import KDTree
 import h5py
 
-def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI"):
+def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI", model_path="MODEL/data", coordinates_path="MODEL/coordinates"):
     """
     Interpolate parameters between exodus file and hdf5 gll file. Only works in 3 dimensions.
     :param mesh: The exodus file
@@ -24,7 +24,7 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
 
     gll = h5py.File(gll_model, 'r+')
 
-    gll_coords = gll['MODEL/coordinates']
+    gll_coords = gll[coordinates_path]
     npoints = gll_coords.shape[0]
     gll_points = gll_coords.shape[1]
 
@@ -71,4 +71,4 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
         assert nfailed is 0, f"{nfailed} points could not be interpolated."
         values = np.sum(param_exodus[:,enclosing_elem_node_indices[i,:,:]]*weights[i,:,:], axis=2)
 
-        gll['MODEL/data'][:,:,i] = values.T
+        gll[model_path][:,:,i] = values.T
