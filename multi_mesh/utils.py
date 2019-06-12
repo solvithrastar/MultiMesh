@@ -117,7 +117,7 @@ def pick_parameters(parameters):
     return parameters
 
 
-def load_exodus(file: (str, path), find_centroids=True: bool):
+def load_exodus(file: str, find_centroids=True):
     """
     Load an exodus file into the Exodus class and potentially find the centroid values. The function returns a KDTree with the centroids.
     """
@@ -131,7 +131,7 @@ def load_exodus(file: (str, path), find_centroids=True: bool):
         return exodus
 
 
-def load_hdf5_params_to_memory(gll: (str, path), model: str, coordinates: str):
+def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str):
     """
     Load coordinates, data and parameter list from and hdf5 file into memory
     """

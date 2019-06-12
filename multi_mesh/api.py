@@ -77,7 +77,7 @@ to_coordinates_path="MODEL/coordinates"):
     parameters = utils.pick_parameters(parameters)
     assert set(parameters) <= set(original_params), "Original mesh does not have all the parameters you wish to interpolate."
 
-    original_centroids = _find_gll_centroids(original_points, dimension)
+    original_centroids = _find_gll_centroids(original_points, dimensions)
 
     original_centroid_tree = KDTree(original_centroids)
 
@@ -90,13 +90,13 @@ to_coordinates_path="MODEL/coordinates"):
     # new_params = smoothie["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
     # smoothie_params = smoothie_params[2:-2].replace(" ", "").split("|")
 
-    permutation = list(len(parameters))
+    permutation = np.arange(0,len(parameters))
     for _i, param in enumerate(parameters):
         permutation[_i] = original_params.index(param)
 
     # In case we are not interpolating all the parameters.
-    if len(permutation) != original_params.shape[1]:
-        for i in range(original_params.shape[1] - len(permutation)):
+    if len(permutation) != len(original_params):
+        for i in range(len(original_params) - len(permutation)):
             permutation.append(np.max(permutation) + 1)
 
     # Check if there is some need for reordering of parameters.
@@ -126,6 +126,7 @@ to_coordinates_path="MODEL/coordinates"):
 
     for s in range(new_points.shape[0]):
         for i in range(gll_points):
+
             point = new_points[s, i, :]
             # Next two checks are only used in a current project
             # if point[0] < 0.0 or point[0] > 1.4e6:
@@ -135,11 +136,11 @@ to_coordinates_path="MODEL/coordinates"):
             #     values[0, s, :, i] = smoothie_data[0, s, :, i]
             #     continue
             element, ref_coord = _check_if_inside_element(
-                original_points, nearest_element_indices[s, i, :], point)
+                original_points, nearest_element_indices[s, i, :], point, dimensions)
 
-            coeffs = get_coefficients(from_gll_order, to_gll_order, 4, ref_coord, dimension)
+            coeffs = get_coefficients(from_gll_order, to_gll_order, 4, ref_coord, dimensions)
             # k = 0
-            values[s,:,i] = np.sum(original_data[element, [0:len(parameters)], :] * coeffs), axis=2)
+            values[s,:,i] = np.sum(original_data[element, np.arange(0,len(parameters)), :] * coeffs, axis=1)
             # for param in params:
             #     values[s, k, i] = np.sum(original_data[element, map[param], :] * coeffs)
             #     k += 1
@@ -320,7 +321,7 @@ def gll_2_gll_gradients(simulation, master, first=True):
     master['ELASTIC/data'].dims[3].label = 'point'
 
 
-def gll_2_exodus(gll_model, exodus_model):
+def gll_2_exodus(gll_model, exodus_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI", model_path="MODEL/data", coordinates_path="MODEL/coordinates", gradient=False):
     """
     Interpolate parameters from gll file to exodus model. Currently I only
     need this for visualization. I could maybe make an xdmf file but that would
@@ -328,50 +329,64 @@ def gll_2_exodus(gll_model, exodus_model):
     :param gll_model: path to gll_model
     :param exodus_model: path_to_exodus_model
     """
-    with h5py.File(gll_model, 'r') as gll_model:
-        gll_points = np.array(gll_model['ELASTIC/coordinates'][:], dtype=np.float64)
-        gll_data = gll_model['ELASTIC/data'][:]
-        params = gll_model["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
-        params = params[2:-2].replace(" ", "").split("|")
+    start = time.time()
+    from multi_mesh.components.interpolator import gll_2_exodus
 
-    centroids = _find_gll_centroids(gll_points, 2)
-    print("centroids", np.shape(centroids))
-    # Build a KDTree of the centroids to look for nearest elements
-    print("Building KDTree")
-    centroid_tree = KDTree(centroids)
+    gll_2_exodus(gll_model, exodus_model, gll_order, dimensions, nelem_to_search, parameters, model_path, coordinates_path, gradient)
 
-    nelem_to_search = 20
+    end = time.time()
+    runtime = end - start
 
-    print("Read in mesh")
-    exodus = Exodus(exodus_model, mode="a")
-    # Find nearest elements
-    print("Querying the KDTree")
-    print(exodus.points.shape)
-    if exodus.points.shape[1] == 3:
-        exodus.points = exodus.points[:, :-1]
-    _, nearest_element_indices = centroid_tree.query(exodus.points[:], k=nelem_to_search)
-    npoints = exodus.npoint
+    if runtime >= 60:
+        runtime = runtime / 60
+        print(f"Finished in time: {runtime} minutes")
+    else:
+        print(f"Finished in time: {runtime} seconds")
 
-    values = np.zeros(shape=[npoints, len(params)])
-
-    s = 0
-    for point in exodus.points[:]:
-        element, ref_coord = _check_if_inside_element(gll_points,
-                                                      nearest_element_indices[s, :],
-                                                      point)
-
-        coeffs = get_coefficients(4,4,0, ref_coord, 2)
-        i = 0
-        for param in params:
-            values[s, i] = np.sum(gll_data[0, element, i, :] * coeffs)
-            i += 1
-
-        s += 1
-    i = 0
-    for param in params:
-        exodus.attach_field(param, np.zeros_like(values[:, i]))
-        exodus.attach_field(param, values[:, i])
-        i += 1
+    # with h5py.File(gll_model, 'r') as gll_model:
+    #     gll_points = np.array(gll_model['ELASTIC/coordinates'][:], dtype=np.float64)
+    #     gll_data = gll_model['ELASTIC/data'][:]
+    #     params = gll_model["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
+    #     params = params[2:-2].replace(" ", "").split("|")
+    #
+    # centroids = _find_gll_centroids(gll_points, 2)
+    # print("centroids", np.shape(centroids))
+    # # Build a KDTree of the centroids to look for nearest elements
+    # print("Building KDTree")
+    # centroid_tree = KDTree(centroids)
+    #
+    # nelem_to_search = 20
+    #
+    # print("Read in mesh")
+    # exodus = Exodus(exodus_model, mode="a")
+    # # Find nearest elements
+    # print("Querying the KDTree")
+    # print(exodus.points.shape)
+    # if exodus.points.shape[1] == 3:
+    #     exodus.points = exodus.points[:, :-1]
+    # _, nearest_element_indices = centroid_tree.query(exodus.points[:], k=nelem_to_search)
+    # npoints = exodus.npoint
+    #
+    # values = np.zeros(shape=[npoints, len(params)])
+    #
+    # s = 0
+    # for point in exodus.points[:]:
+    #     element, ref_coord = _check_if_inside_element(gll_points,
+    #                                                   nearest_element_indices[s, :],
+    #                                                   point)
+    #
+    #     coeffs = get_coefficients(4,4,0, ref_coord, 2)
+    #     i = 0
+    #     for param in params:
+    #         values[s, i] = np.sum(gll_data[0, element, i, :] * coeffs)
+    #         i += 1
+    #
+    #     s += 1
+    # i = 0
+    # for param in params:
+    #     exodus.attach_field(param, np.zeros_like(values[:, i]))
+    #     exodus.attach_field(param, values[:, i])
+    #     i += 1
 
 
 def gradient_2_cartesian_exodus(gradient, cartesian, params, first=False):

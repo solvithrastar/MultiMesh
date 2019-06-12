@@ -72,3 +72,53 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
         values = np.sum(param_exodus[:,enclosing_elem_node_indices[i,:,:]]*weights[i,:,:], axis=2)
 
         gll[model_path][:,:,i] = values.T
+
+
+
+def gll_2_exodus(gll_model, exodus_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI", model_path="MODEL/data", coordinates_path="MODEL/coordinates", gradient=False):
+    """
+    Interpolate parameters from gll file to exodus model. This will mostly be used to interpolate gradients to begin with.
+    :param gll_model: path to gll_model
+    :param exodus_model: path_to_exodus_model
+    :param parameters: Currently not used but will be fixed later
+    """
+    with h5py.File(gll_model, 'r') as gll_model:
+        gll_points = np.array(gll_model[coordinates_path][:], dtype=np.float64)
+        gll_data = gll_model[model_path][:]
+        params = gll_model[model_path].attrs.get("DIMENSION_LABELS")[2].decode()
+        parameters = params[2:-2].replace(" ", "").split("|")
+
+    centroids = _find_gll_centroids(gll_points, dimensions)
+    print("centroids", np.shape(centroids))
+    # Build a KDTree of the centroids to look for nearest elements
+    print("Building KDTree")
+    centroid_tree = KDTree(centroids)
+
+    nelem_to_search = 20
+
+    print("Read in mesh")
+    exodus = Exodus(exodus_model, mode="a")
+    # Find nearest elements
+    print("Querying the KDTree")
+    print(exodus.points.shape)
+    # if exodus.points.shape[1] == 3:
+    #     exodus.points = exodus.points[:, :-1]
+    _, nearest_element_indices = centroid_tree.query(exodus.points, k=nelem_to_search)
+    npoints = exodus.npoint
+    # parameters = utils.pick_parameters(parameters)
+    values = np.zeros(shape=[npoints, len(parameters)])
+
+    s = 0
+    for point in exodus.points:
+        element, ref_coord = _check_if_inside_element(gll_points,
+                                                      nearest_element_indices[s, :],
+                                                      point, dimensions)
+
+        coeffs = get_coefficients(4,4,0, ref_coord, dimensions)
+        values[s, :] = np.sum(gll_data[0, element, :, :] * coeffs, axis=1)
+        s += 1
+    i = 0
+    for param in params:
+        exodus.attach_field(param, np.zeros_like(values[:, i]))
+        exodus.attach_field(param, values[:, i])
+        i += 1
