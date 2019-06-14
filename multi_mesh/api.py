@@ -75,7 +75,7 @@ to_coordinates_path="MODEL/coordinates"):
 
 
     parameters = utils.pick_parameters(parameters)
-    assert set(parameters) <= set(original_params), "Original mesh does not have all the parameters you wish to interpolate."
+    assert set(parameters) <= set(original_params), f"Original mesh does not have all the parameters you wish to interpolate. You asked for {parameters}, mesh has {original_params}"
 
     original_centroids = _find_gll_centroids(original_points, dimensions)
 
@@ -84,7 +84,7 @@ to_coordinates_path="MODEL/coordinates"):
     new = h5py.File(to_gll, 'r+')
 
     new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
-    utils.remove_and_create_empty_dataset(new, parameters)
+    utils.remove_and_create_empty_dataset(new, parameters, to_model_path, to_coordinates_path)
 
     # new_data = new['MODEL/data']
     # new_params = smoothie["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
@@ -605,3 +605,5 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     # ref_coord = None
 
     return element, ref_coord
+
+

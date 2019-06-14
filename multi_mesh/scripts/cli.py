@@ -67,7 +67,7 @@ def interpolate_mesh_a_to_b(mesh_a, mesh_b, params=["TTI"]):
     npoints = exodus_b.npoint
     enclosing_elem_node_indices = np.zeros((npoints, 8), dtype=np.int64)
     weights = np.zeros((npoints, 8))  # initiate interpolation weights
-    permutation = [0, 3, 2, 1, 4, 5, 6, 7] # indices of nodes.
+    permutation = [0, 3, 2, 1, 4, 5, 6, 7]  # indices of nodes.
     i = np.argsort(permutation)
     connectivity_reordered = exodus_a.connectivity[:, i]
 

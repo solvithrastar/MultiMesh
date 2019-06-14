@@ -5,6 +5,7 @@ import numpy as np
 from pyexodus import exodus
 from multi_mesh.io.exodus import Exodus
 from pykdtree.kdtree import KDTree
+import h5py
 
 
 def get_rot_matrix(angle, x, y, z):
