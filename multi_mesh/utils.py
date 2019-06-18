@@ -60,8 +60,8 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     """
 
     event_vec = [np.cos(event_loc[0]) * np.cos(event_loc[1]),
-            np.cos(event_loc[0]) * np.sin(event_loc[1]),
-            np.sin(event_loc[0])]
+                 np.cos(event_loc[0]) * np.sin(event_loc[1]),
+                 np.sin(event_loc[0])]
     event_vec = np.array(event_vec) / np.linalg.norm(event_vec)
     north_vec = np.array([0.0, 0.0, 1.0])
 
@@ -80,21 +80,29 @@ def rotate_mesh(mesh, event_loc, backwards=False):
                             z=points[2], matrix=rot_mat)
     rotated_points = rotated_points.T
 
-    mesh.put_coords(rotated_points[:, 0], rotated_points[:, 1], rotated_points[:, 2])
+    mesh.put_coords(rotated_points[:, 0], rotated_points[:, 1],
+                    rotated_points[:, 2])
 
     # It's not rotating in the right direction but that remains to be
     # configured properly.
 
-def remove_and_create_empty_dataset(gll_model, parameters: list, model: str, coordinates: str):
+
+def remove_and_create_empty_dataset(gll_model, parameters: list,
+                                    model: str, coordinates: str):
     """
     Take gll dataset, delete it and create an empty one ready for the new
     set of parameters that are to be input to the mesh.
     """
     if model in gll_model:
         del gll_model[model]
-    gll_model.create_dataset(name=model, shape=(gll_model[coordinates].shape[0], len(parameters), gll_model[coordinates].shape[1]), dtype=np.float64)
+    gll_model.create_dataset(name=model,
+                             shape=(gll_model[coordinates].shape[0],
+                                    len(parameters),
+                                    gll_model[coordinates].shape[1]),
+                             dtype=np.float64)
 
     create_dimension_labels(gll_model, parameters)
+
 
 def create_dimension_labels(gll, parameters: list):
     """
@@ -107,9 +115,11 @@ def create_dimension_labels(gll, parameters: list):
     gll['MODEL/data'].dims[1].label = dimstr
     gll['MODEL/data'].dims[2].label = 'point'
 
+
 def pick_parameters(parameters):
     if parameters == "TTI":
-        parameters = ["VPV", "VPH", "VSV", "VSH", "RHO", "ETA", "QKAPPA", "QMU"]
+        parameters = ["VPV", "VPH", "VSV", "VSH", "RHO", "ETA", "QKAPPA",
+                      "QMU"]
     elif parameters == "ISO":
         parameters = ["RHO", "VP", "VS", "QKAPPA", "QMU"]
     else:
@@ -120,7 +130,8 @@ def pick_parameters(parameters):
 
 def load_exodus(file: str, find_centroids=True):
     """
-    Load an exodus file into the Exodus class and potentially find the centroid values. The function returns a KDTree with the centroids.
+    Load an exodus file into the Exodus class and potentially find the
+    centroid values. The function returns a KDTree with the centroids.
     """
 
     exodus = Exodus(file)
