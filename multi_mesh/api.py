@@ -16,9 +16,17 @@ for name, func in salvus_fem._fcts:
     #     GetInterpolationCoefficients3D = func
     if name == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_4__Matrix_Derive" \
                "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 125, 1>":
-        GetInterpolationCoefficients3D = func
+        GetInterpolationCoefficients3D_44 = func
+    if name == "__GetInterpolationCoefficients__int_n0_2__int_n1_2__int_n2_4__Matrix_Derive" \
+               "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 27, 1>":
+        GetInterpolationCoefficients3D_22 = func
+    if name == "__GetInterpolationCoefficients__int_n0_2__int_n1_4__int_n2_4__Matrix_Derive" \
+               "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 27, 1>":
+        GetInterpolationCoefficients3D_24 = func
     if name == "__InverseCoordinateTransformWrapper__int_n_4__int_d_3":
-        InverseCoordinateTransformWrapper3D = func
+        InverseCoordinateTransformWrapper3D_4 = func
+    if name == "__InverseCoordinateTransformWrapper__int_n_2__int_d_3":
+        InverseCoordinateTransformWrapper3D_2 = func
     if name == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_0__Matrix_Derive" \
                "dA_Eigen::Matrix<double, 2, 1>__Matrix_DerivedB_Eigen::Matrix<double, 25, 1>":
         GetInterpolationCoefficients2D = func
@@ -46,7 +54,8 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
     start = time.time()
     from multi_mesh.components.interpolator import exodus_2_gll
 
-    exodus_2_gll(mesh, gll_model, gll_order, dimensions, nelem_to_search, parameters, model_path, coordinates_path)
+    exodus_2_gll(mesh, gll_model, gll_order, dimensions,
+                 nelem_to_search, parameters, model_path, coordinates_path)
 
     end = time.time()
     runtime = end - start
@@ -58,8 +67,10 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20,
         print(f"Finished in time: {runtime} seconds")
 
 
-def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, nelem_to_search=20, parameters="TTI", from_model_path="MODEL/data", to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates",
-to_coordinates_path="MODEL/coordinates"):
+def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
+              nelem_to_search=20, parameters="TTI", from_model_path="MODEL/data",
+              to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates",
+              to_coordinates_path="MODEL/coordinates"):
     """
     Interpolate parameters between two gll models.
     :param from_gll: path to gll mesh to interpolate from
@@ -70,90 +81,31 @@ to_coordinates_path="MODEL/coordinates"):
     :param parameters: Parameters to be interpolated, possible to pass, "ISO", "TTI" or a list of parameters.
     :return: gll_mesh with new model on it
     """
+    start = time.time()
+    from multi_mesh.components.interpolator import gll_2_gll
+    
+    gll_2_gll(
+        from_gll=from_gll,
+        to_gll=to_gll,
+        from_gll_order=from_gll_order,
+        to_gll_order=to_gll_order,
+        dimensions=3,
+        nelem_to_search=nelem_to_search,
+        parameters=parameters,
+        from_model_path=from_model_path,
+        to_model_path=to_model_path,
+        from_coordinates_path=from_coordinates_path,
+        to_coordinates_path=to_coordinates_path
+    )
 
-    original_points, original_data, original_params = utils.load_hdf5_params_to_memory(from_gll, from_model_path, from_coordinates_path)
+    end = time.time()
+    runtime = end - start
 
-
-    parameters = utils.pick_parameters(parameters)
-    assert set(parameters) <= set(original_params), f"Original mesh does not have all the parameters you wish to interpolate. You asked for {parameters}, mesh has {original_params}"
-
-    original_centroids = _find_gll_centroids(original_points, dimensions)
-
-    original_centroid_tree = KDTree(original_centroids)
-
-    new = h5py.File(to_gll, 'r+')
-
-    new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
-    utils.remove_and_create_empty_dataset(new, parameters, to_model_path, to_coordinates_path)
-
-    # new_data = new['MODEL/data']
-    # new_params = smoothie["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
-    # smoothie_params = smoothie_params[2:-2].replace(" ", "").split("|")
-
-    permutation = np.arange(0,len(parameters))
-    for _i, param in enumerate(parameters):
-        permutation[_i] = original_params.index(param)
-
-    # In case we are not interpolating all the parameters.
-    if len(permutation) != len(original_params):
-        for i in range(len(original_params) - len(permutation)):
-            permutation.append(np.max(permutation) + 1)
-
-    # Check if there is some need for reordering of parameters.
-    reorder = False
-    for i in range(len(permutation)):
-        if i == 0:
-            if permutation[i] != 0:
-                reorder = True
-                break
-        else:
-            if permutation[i] != permutation[i-1] + 1:
-                reorder = True
-                break
-    if reorder:
-        i = np.argsort(permutation)
-        original_params = original_params[:, i, :]
-
-    gll_points = new[to_coordinates_path].shape[1]
-    values = np.zeros(shape=[new_points.shape[0], len(parameters), gll_points])
-
-    nearest_element_indices = np.zeros(shape=[new_points.shape[0],
-                                              gll_points, nelem_to_search],
-                                       dtype=np.int64)
-    for i in range(gll_points):
-        _, nearest_element_indices[:, i, :] = original_centroid_tree.query(
-            new_points[:, i, :], k=nelem_to_search)
-
-    for s in range(new_points.shape[0]):
-        for i in range(gll_points):
-
-            point = new_points[s, i, :]
-            # Next two checks are only used in a current project
-            # if point[0] < 0.0 or point[0] > 1.4e6:
-            #     values[0, s, :, i] = smoothie_data[0, s, :, i]
-            #     continue
-            # if point[1] < 0.0 or point[1] > 1.4e6:
-            #     values[0, s, :, i] = smoothie_data[0, s, :, i]
-            #     continue
-            element, ref_coord = _check_if_inside_element(
-                original_points, nearest_element_indices[s, i, :], point, dimensions)
-
-            coeffs = get_coefficients(from_gll_order, to_gll_order, 4, ref_coord, dimensions)
-            # k = 0
-            values[s,:,i] = np.sum(original_data[element, np.arange(0,len(parameters)), :] * coeffs, axis=1)
-            # for param in params:
-            #     values[s, k, i] = np.sum(original_data[element, map[param], :] * coeffs)
-            #     k += 1
-
-    new[to_model_path] = values
-    # smoothie.create_dataset('ELASTIC/data', data=values, dtype='f4')
-    # smoothie['ELASTIC/data'].dims[0].label = 'time'
-    # smoothie['ELASTIC/data'].dims[1].label = 'element'
-    #
-    # dimstr = '[ ' + ' | '.join(params) + ' ]'
-    # smoothie['ELASTIC/data'].dims[2].label = dimstr
-    # # smoothie['ELASTIC/new_data'] = values
-    # smoothie['ELASTIC/data'].dims[3].label = 'point'
+    if runtime >= 60:
+        runtime = runtime / 60
+        print(f"Finished in time: {runtime} minutes")
+    else:
+        print(f"Finished in time: {runtime} seconds")
 
 
 def gll_2_gll_3d(gll_a, gll_b, order):
@@ -166,7 +118,8 @@ def gll_2_gll_3d(gll_a, gll_b, order):
     """
 
     with h5py.File(gll_a, 'r') as gll_a:
-        gll_a_points = np.array(gll_a['MODEL/coordinates'][:], dtype=np.float64)
+        gll_a_points = np.array(
+            gll_a['MODEL/coordinates'][:], dtype=np.float64)
         gll_a_data = gll_a['MODEL/data'][:]
         params = gll_a["MODEL/data"].attrs.get("DIMENSION_LABELS")[1].decode()
         params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
@@ -220,7 +173,8 @@ def gll_2_gll_3d(gll_a, gll_b, order):
             k = 0
             for param in params:
 
-                values[s, map[param], i] = np.sum(gll_a_data[element, k, :] * coeffs)
+                values[s, map[param], i] = np.sum(
+                    gll_a_data[element, k, :] * coeffs)
                 k += 1
     if 'MODEL/data' in gll_b:
         del gll_b['MODEL/data']
@@ -262,17 +216,21 @@ def gll_2_gll_gradients(simulation, master, first=True):
     nelem_to_search = 25
     master = h5py.File(master, 'r+')
 
-    master_points = np.array(master['ELASTIC/coordinates'][:], dtype=np.float64)
+    master_points = np.array(
+        master['ELASTIC/coordinates'][:], dtype=np.float64)
     master_data = master['ELASTIC/data']
 
     gll_points = (4 + 1) ** 2
-    values = np.zeros(shape=[1, master_points.shape[0], len(params), gll_points])
+    values = np.zeros(
+        shape=[1, master_points.shape[0], len(params), gll_points])
 
     nearest_element_indices = np.zeros(shape=[master_points.shape[0],
                                               gll_points, nelem_to_search],
                                        dtype=np.int64)
-    master_params = master["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
-    master_params = master_params[2:-2].replace(" ", "").replace("grad", "").split("|")
+    master_params = master["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[
+        2].decode()
+    master_params = master_params[2:-
+                                  2].replace(" ", "").replace("grad", "").split("|")
     index_map = {}
     for i in range(len(master_params)):
         if master_params[i] in params:
@@ -304,7 +262,8 @@ def gll_2_gll_gradients(simulation, master, first=True):
             k = 0
             for param in params:
                 # print(f"Parameter: {param}")
-                values[0, s, k, i] = np.sum(sim_data[0, element, k, :] * coeffs)
+                values[0, s, k, i] = np.sum(
+                    sim_data[0, element, k, :] * coeffs)
                 k += 1
     if not first:
         for key, value in index_map.items():
@@ -332,7 +291,8 @@ def gll_2_exodus(gll_model, exodus_model, gll_order=4, dimensions=3, nelem_to_se
     start = time.time()
     from multi_mesh.components.interpolator import gll_2_exodus
 
-    gll_2_exodus(gll_model, exodus_model, gll_order, dimensions, nelem_to_search, parameters, model_path, coordinates_path, gradient)
+    gll_2_exodus(gll_model, exodus_model, gll_order, dimensions,
+                 nelem_to_search, parameters, model_path, coordinates_path, gradient)
 
     end = time.time()
     runtime = end - start
@@ -420,7 +380,8 @@ def gradient_2_cartesian_exodus(gradient, cartesian, params, first=False):
     nelem_to_search = 20
     exodus_b = Exodus(cartesian, mode="a")
 
-    _, nearest_element_indices = centroid_tree.query(exodus_b.points, k=nelem_to_search)
+    _, nearest_element_indices = centroid_tree.query(
+        exodus_b.points, k=nelem_to_search)
     nearest_element_indices = np.array(nearest_element_indices, dtype=np.int64)
 
     npoints = exodus_b.npoint
@@ -430,7 +391,8 @@ def gradient_2_cartesian_exodus(gradient, cartesian, params, first=False):
     nfailed = lib.triLinearInterpolator(nelem_to_search,
                                         npoints,
                                         nearest_element_indices,
-                                        np.ascontiguousarray(connectivity, dtype=np.int64),
+                                        np.ascontiguousarray(
+                                            connectivity, dtype=np.int64),
                                         enclosing_element_node_indices,
                                         np.ascontiguousarray(exodus_a.points),
                                         weights,
@@ -440,9 +402,11 @@ def gradient_2_cartesian_exodus(gradient, cartesian, params, first=False):
 
     for param in params:
         param_a = exodus_a.get_nodal_field(param)
-        values = np.sum(param_a[enclosing_element_node_indices] * weights, axis=1)
+        values = np.sum(
+            param_a[enclosing_element_node_indices] * weights, axis=1)
         if not first:
-            param_b = exodus_b.get_nodal_field(param)  # Get pre-existing gradient
+            param_b = exodus_b.get_nodal_field(
+                param)  # Get pre-existing gradient
             values += param_b  # Add new gradient on top of old one
         exodus_b.attach_field(param, np.zeros_like(values))
         exodus_b.attach_field(param, values)
@@ -461,7 +425,8 @@ def gradient_2_cartesian_hdf5(gradient, cartesian, first=False):
     """
 
     with h5py.File(gradient, 'r') as grad:
-        grad_points = np.array(grad['ELASTIC/coordinates'][:], dtype=np.float64)
+        grad_points = np.array(
+            grad['ELASTIC/coordinates'][:], dtype=np.float64)
         grad_data = grad['ELASTIC/data'][:]
         params = grad["ELASTIC/data"].attrs.get("DIMENSION_LABELS")[2].decode()
         params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
@@ -475,11 +440,12 @@ def gradient_2_cartesian_hdf5(gradient, cartesian, first=False):
     nelem_to_search = 25
     cartesian = Exodus(cartesian, mode="a")
 
-    _, nearest_element_indices = centroid_tree.query(cartesian.points[:, :2], k=nelem_to_search)
+    _, nearest_element_indices = centroid_tree.query(
+        cartesian.points[:, :2], k=nelem_to_search)
     npoints = cartesian.npoint
 
     values = np.zeros(shape=[npoints, len(params)])
-    scaling_factor = 1.0  #34825988.0
+    scaling_factor = 1.0  # 34825988.0
 
     s = 0
     for point in cartesian.points[:, :2]:
@@ -497,7 +463,7 @@ def gradient_2_cartesian_hdf5(gradient, cartesian, first=False):
         k = 0
         for param in params:
             values[s, k] = np.sum(grad_data[0, element, k+1, :] * coeffs) * \
-                           scaling_factor  # I do a k+1 because I'm not using RHO
+                scaling_factor  # I do a k+1 because I'm not using RHO
             k += 1
 
         s += 1
@@ -531,7 +497,17 @@ def get_coefficients(a, b, c, ref_coord, dimension):
     # return tensor_gll.GetInterpolationCoefficients(a, b, c, "Matrix", "Matrix", ref_coord)
     # return salvus_fem._fcts[867][1](ref_coord)
     if dimension == 3:
-        return GetInterpolationCoefficients3D(ref_coord)
+        if a == 2:
+            if b == 2:
+                return GetInterpolationCoefficients3D_22(ref_coord)
+            else:
+                return GetInterpolationCoefficients3D_24(ref_coord)
+        else:
+            if b == 2:
+                return GetInterpolationCoefficients3D_42(ref_coord)
+            else:
+                return GetInterpolationCoefficients3D_44(ref_coord)
+        # return GetInterpolationCoefficients3D(ref_coord)
     elif dimension == 2:
         return GetInterpolationCoefficients2D(ref_coord)
     # return GetInterpolationCoefficients(4, 4, 4, "Matrix", "Matrix", ref_coord)
@@ -541,7 +517,10 @@ def inverse_transform(point, gll_points, dimension):
     # return hypercube.InverseCoordinateTransformWrapper(n=4, d=3, pnt=point,
     #                                       ctrlNodes=gll_points)
     if dimension == 3:
-        return InverseCoordinateTransformWrapper3D(pnt=point, ctrlNodes=gll_points)
+        if len(gll_points) == 125:
+            return InverseCoordinateTransformWrapper3D_4(pnt=point, ctrlNodes=gll_points)
+        if len(gll_points) == 27:
+            return InverseCoordinateTransformWrapper3D_2(pnt=point, ctrlNodes=gll_points)
     elif dimension == 2:
         return InverseCoordinateTransformWrapper2D(pnt=point, ctrlNodes=gll_points)
     # return salvus_fem._fcts[29][1](pnt=point, ctrlNodes=gll_points)
@@ -562,7 +541,8 @@ def _find_gll_centroids(gll_coordinates, dimensions):
     centroids = np.zeros(shape=[nelements, dimensions])
 
     for d in range(dimensions):
-        centroids[:, d] = np.mean(gll_coordinates[:, :, d], axis=1, dtype=np.float64)
+        centroids[:, d] = np.mean(
+            gll_coordinates[:, :, d], axis=1, dtype=np.float64)
 
     # print("Found centroids")
     return centroids
@@ -583,11 +563,11 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     for element in nearest_elements:
         gll_points = gll_model[element, :, :]
         gll_points = np.asfortranarray(gll_points)
-
-        ref_coord = inverse_transform(point=point, gll_points=gll_points, dimension=dimension)
+        ref_coord = inverse_transform(
+            point=point, gll_points=gll_points, dimension=dimension)
         ref_coords[l] = np.sum(np.abs(ref_coord))
         l += 1
-        #salvus_fem._fcts[29][1]
+        # salvus_fem._fcts[29][1]
         if not np.any(np.abs(ref_coord) > 1.0):
             return element, ref_coord
 
@@ -597,13 +577,18 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     ind = np.where(ref_coords == np.min(ref_coords))[0][0]
     # ind = ref_coords.index(ref_coords == np.min(ref_coords))
     element = nearest_elements[ind]
-
     ref_coord = inverse_transform(point=point,
-                                  gll_points=np.asfortranarray(gll_model[element,:,:], dtype=np.float64),
+                                  gll_points=np.asfortranarray(
+                                      gll_model[element, :, :], dtype=np.float64),
                                   dimension=dimension)
     # element = None
     # ref_coord = None
 
     return element, ref_coord
 
+from_gll = "/Users/solvi/PhD/workspace/Interpolation/fulastur.h5"
+to_gll = "/Users/solvi/PhD/workspace/Interpolation/hressastur.h5"
+gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, nelem_to_search=50, parameters=["VP", "VS", "RHO"], from_model_path="MODEL/data", to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates", to_coordinates_path="MODEL/coordinates")
+# mesh = "/Users/solvi/PhD/workspace/Interpolation/Globe3D_csem_50.e"
 
+# exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="ISO", model_path="MODEL/data", coordinates_path="MODEL/coordinates")
