@@ -184,7 +184,8 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
     original_centroids = _find_gll_centroids(original_points, dimensions)
 
     original_centroid_tree = KDTree(original_centroids)
-
+    all_old_points = original_points.reshape(original_points.shape[0] * original_points.shape[1], original_points.shape[2])
+    original_tree = KDTree(all_old_points)
     new = h5py.File(to_gll, 'r+')
 
     new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
@@ -222,27 +223,78 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
     nearest_element_indices = np.zeros(shape=[new_points.shape[0],
                                               gll_points, nelem_to_search],
                                        dtype=np.int64)
-    for i in range(gll_points):
-        _, nearest_element_indices[:, i, :] = original_centroid_tree.query(
-            new_points[:, i, :], k=nelem_to_search)
-    
-    for s in range(new_points.shape[0]):
-        if s % 200 == 0:
-            print(f"Interpolating element number {s}/{new_points.shape[0]}")
-        for i in range(gll_points):
 
-            element, ref_coord = _check_if_inside_element(
-                original_points, nearest_element_indices[s, i, :], new_points[s, i, :], dimensions)
+    all_new_points = new_points.reshape((new_points.shape[0]*new_points.shape[1], new_points.shape[2]))
+    unique_new_points, recon = np.unique(all_new_points, return_inverse=True, axis=0)
 
-            coeffs = get_coefficients(
-                from_gll_order, to_gll_order, 4, ref_coord, dimensions)
-            values[s, :, i] = np.sum(
-                original_data[element, args, :] * coeffs, axis=1)
+    # interp_points = all_new_points[unique_new_points, :]
+    # nearest_element_indices = np.zeros(shape=[])
+    # print(all_new_points.shape)
+    # print(unique_new_points.shape)
+    nearest_element_indices = np.zeros(shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int)
 
+    _, nearest_element_indices[:, :] = original_tree.query(unique_new_points[:, :], k=nelem_to_search)
+    nearest_element_indices = np.floor(nearest_element_indices/gll_points).astype(int)
+    coeffs = np.zeros(shape=[unique_new_points.shape[0], len(parameters), gll_points])
+
+    element = np.zeros(shape=len(unique_new_points))
+    # I'm trying to use element indices as a list of indices for the original_data later on.
+    # Not sure whether that is at all feasible, but let's try
+
+    for i in range(unique_new_points.shape[0]):
+        if i % 10000 == 0:
+            print(f"Interpolating point number {i}/{unique_new_points.shape[0]}")
+
+        element[i], ref_coord = _check_if_inside_element(original_points, nearest_element_indices[i, :], unique_new_points[i,:], dimensions)
+        coeffs[i, 0, :] = get_coefficients(from_gll_order, to_gll_order, 4, ref_coord, dimensions)
+        coeffs[i, 1, :] = coeffs[i, 0, :] # This must be done in a nicer way
+        coeffs[i, 2, :] = coeffs[i, 0, :]
+    element = element.astype(int)
+
+
+    resample_data = original_data[element]
+    resample_data = resample_data[:, args, :]
+    # print(f"Show me: {original_data[element, args, :].shape}")
+    # coeffs_all = coeffs[recon, :]
+    # print(f"Coeffs all: {coeffs_all.shape}")
+    # elements_all = element[recon]
+    # coeffs_all = coeffs_all.reshape((new_points.shape[0], new_points.shape[1], gll_points))
+    # elements_all = elements_all.reshape((new_points.shape[0], new_points.shape[1], gll_points))
+    # print(f"reshaped: {coeffs_all.shape}")
+
+    values = np.zeros(shape=[len(unique_new_points), len(parameters), gll_points], dtype=np.float64)
+    values = np.sum(resample_data[:, args, :] * coeffs[:, :, :], axis=2)
+    # print(values.shape)
+    values = values[recon, :]
+    values = values.reshape((new_points.shape[0], gll_points, len(args)))
+    values = np.swapaxes(values, 1,2)
+    # print(values)
     utils.remove_and_create_empty_dataset(new, parameters, to_model_path,
                                           to_coordinates_path)
 
     new[to_model_path][:, :, :] = values
+
+    # for i in range(gll_points):
+    #     _, nearest_element_indices[:, i, :] = original_centroid_tree.query(
+    #         new_points[:, i, :], k=nelem_to_search)
+    #
+    # for s in range(new_points.shape[0]):
+    #     if s % 200 == 0:
+    #         print(f"Interpolating element number {s}/{new_points.shape[0]}")
+    #     for i in range(gll_points):
+    #
+    #         element, ref_coord = _check_if_inside_element(
+    #             original_points, nearest_element_indices[s, i, :], new_points[s, i, :], dimensions)
+    #
+    #         coeffs = get_coefficients(
+    #             from_gll_order, to_gll_order, 4, ref_coord, dimensions)
+    #         values[s, :, i] = np.sum(
+    #             original_data[element, args, :] * coeffs, axis=1)
+    #
+    # utils.remove_and_create_empty_dataset(new, parameters, to_model_path,
+    #                                       to_coordinates_path)
+    #
+    # new[to_model_path][:, :, :] = values
 
 def linear_gll_2_ex(gll_model, exodus_model, gll_order=4, dimensions=3,
                     nelem_to_search=20, parameters="TTI",
