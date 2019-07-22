@@ -1,12 +1,13 @@
 
-from multi_mesh.helpers import load_lib
-from multi_mesh.io.exodus import Exodus
+# from multi_mesh.helpers import load_lib
+# from multi_mesh.io.exodus import Exodus
 from multi_mesh import utils
 from pykdtree.kdtree import KDTree
 import h5py
 import sys
 import time
 import numpy as np
+import warnings
 
 import salvus_fem
 # Buffer the salvus_fem functions, so accessing becomes much faster
@@ -32,6 +33,8 @@ for name, func in salvus_fem._fcts:
         GetInterpolationCoefficients2D = func
     if name == "__InverseCoordinateTransformWrapper__int_n_4__int_d_2":
         InverseCoordinateTransformWrapper2D = func
+    if name == "__CheckHullWrapper__int_n_4__int_d_3":
+        CheckHull = func
 
 
 """
@@ -556,7 +559,7 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     :param point: The actual point
     :return: the Index of the element which point is inside
     """
-    import warnings
+
     point = np.asfortranarray(point, dtype=np.float64)
     ref_coords = np.zeros(len(nearest_elements))
     l = 0
@@ -586,8 +589,8 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
 
     return element, ref_coord
 
-from_gll = "/Users/solvi/PhD/workspace/Interpolation/fulastur.h5"
-to_gll = "/Users/solvi/PhD/workspace/Interpolation/hressastur.h5"
+to_gll = "/Users/solvi/PhD/workspace/Interpolation/fulastur.h5"
+from_gll = "/Users/solvi/PhD/workspace/Interpolation/hressastur.h5"
 gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, nelem_to_search=50, parameters=["VP", "VS", "RHO"], from_model_path="MODEL/data", to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates", to_coordinates_path="MODEL/coordinates")
 # mesh = "/Users/solvi/PhD/workspace/Interpolation/Globe3D_csem_50.e"
 

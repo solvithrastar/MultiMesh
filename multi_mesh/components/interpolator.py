@@ -2,8 +2,8 @@
 A collection of functions which perform interpolations between various meshes.
 """
 import numpy as np
-from multi_mesh.helpers import load_lib
-from multi_mesh.io.exodus import Exodus
+# from multi_mesh.helpers import load_lib
+# from multi_mesh.io.exodus import Exodus
 from multi_mesh import utils
 from pykdtree.kdtree import KDTree
 import h5py
@@ -22,6 +22,8 @@ for name, func in salvus_fem._fcts:
         GetInterpolationCoefficients2D = func
     if name == "__InverseCoordinateTransformWrapper__int_n_4__int_d_2":
         InverseCoordinateTransformWrapper2D = func
+    if name == "__CheckHullWrapper__int_n_4__int_d_3":
+        CheckHull = func
 
 
 def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3,
@@ -166,6 +168,11 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
               to_coordinates_path="MODEL/coordinates"):
     """
     Interpolate parameters between two gll models.
+    It loads from_gll to memory, looks at the points of the to_gll and
+    assembles a list of unique points which it interpolates onto.
+    It then reconstructs the point values based on the initial to_gll points
+    and saves it to file.
+
     :param from_gll: path to gll mesh to interpolate from
     :param to_gll: path to gll mesh to interpolate to
     :param from_gll_order: order of gll_model
@@ -181,9 +188,6 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
     assert set(parameters) <= set(
         original_params), f"Original mesh does not have all the parameters you wish to interpolate. You asked for {parameters}, mesh has {original_params}"
 
-    original_centroids = _find_gll_centroids(original_points, dimensions)
-
-    original_centroid_tree = KDTree(original_centroids)
     all_old_points = original_points.reshape(original_points.shape[0] * original_points.shape[1], original_points.shape[2])
     original_tree = KDTree(all_old_points)
     new = h5py.File(to_gll, 'r+')
@@ -191,8 +195,8 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
     new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
 
     permutation = np.arange(0, len(parameters))
-    for _i, param in enumerate(parameters):
-        permutation[_i] = original_params.index(param)
+    for _i, param in enumerate(original_params):
+        permutation[_i] = parameters.index(param)
 
     # In case we are not interpolating all the parameters.
     if len(permutation) != len(original_params):
@@ -212,25 +216,16 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
                 break
 
     if reorder:
-        args = np.argsort(permutation)
+        args = np.argsort(permutation).astype(int)
     else:
-        args = np.arange(start=0, stop=len(permutation))
-
+        args = np.arange(start=0, stop=len(permutation)).astype(int)
+    parameters = [parameters[x] for x in args]
 
     gll_points = new[to_coordinates_path].shape[1]
-    values = np.zeros(shape=[new_points.shape[0], len(parameters), gll_points])
-
-    nearest_element_indices = np.zeros(shape=[new_points.shape[0],
-                                              gll_points, nelem_to_search],
-                                       dtype=np.int64)
 
     all_new_points = new_points.reshape((new_points.shape[0]*new_points.shape[1], new_points.shape[2]))
     unique_new_points, recon = np.unique(all_new_points, return_inverse=True, axis=0)
 
-    # interp_points = all_new_points[unique_new_points, :]
-    # nearest_element_indices = np.zeros(shape=[])
-    # print(all_new_points.shape)
-    # print(unique_new_points.shape)
     nearest_element_indices = np.zeros(shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int)
 
     _, nearest_element_indices[:, :] = original_tree.query(unique_new_points[:, :], k=nelem_to_search)
@@ -238,63 +233,31 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
     coeffs = np.zeros(shape=[unique_new_points.shape[0], len(parameters), gll_points])
 
     element = np.zeros(shape=len(unique_new_points))
-    # I'm trying to use element indices as a list of indices for the original_data later on.
-    # Not sure whether that is at all feasible, but let's try
 
     for i in range(unique_new_points.shape[0]):
         if i % 10000 == 0:
             print(f"Interpolating point number {i}/{unique_new_points.shape[0]}")
-
+        # Try to rearrange and loop through last index of array.
         element[i], ref_coord = _check_if_inside_element(original_points, nearest_element_indices[i, :], unique_new_points[i,:], dimensions)
         coeffs[i, 0, :] = get_coefficients(from_gll_order, to_gll_order, 4, ref_coord, dimensions)
-        coeffs[i, 1, :] = coeffs[i, 0, :] # This must be done in a nicer way
-        coeffs[i, 2, :] = coeffs[i, 0, :]
+
+    for i in range(len(parameters))[1:]:
+        coeffs[:, i, :] = coeffs[:, 0, :]
+
     element = element.astype(int)
 
-
     resample_data = original_data[element]
-    resample_data = resample_data[:, args, :]
-    # print(f"Show me: {original_data[element, args, :].shape}")
-    # coeffs_all = coeffs[recon, :]
-    # print(f"Coeffs all: {coeffs_all.shape}")
-    # elements_all = element[recon]
-    # coeffs_all = coeffs_all.reshape((new_points.shape[0], new_points.shape[1], gll_points))
-    # elements_all = elements_all.reshape((new_points.shape[0], new_points.shape[1], gll_points))
-    # print(f"reshaped: {coeffs_all.shape}")
 
-    values = np.zeros(shape=[len(unique_new_points), len(parameters), gll_points], dtype=np.float64)
-    values = np.sum(resample_data[:, args, :] * coeffs[:, :, :], axis=2)
-    # print(values.shape)
+    # values = np.zeros(shape=[len(unique_new_points), len(parameters), gll_points], dtype=np.float64)
+    values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)
     values = values[recon, :]
     values = values.reshape((new_points.shape[0], gll_points, len(args)))
-    values = np.swapaxes(values, 1,2)
-    # print(values)
+    values = np.swapaxes(values, 1, 2)
     utils.remove_and_create_empty_dataset(new, parameters, to_model_path,
                                           to_coordinates_path)
 
     new[to_model_path][:, :, :] = values
 
-    # for i in range(gll_points):
-    #     _, nearest_element_indices[:, i, :] = original_centroid_tree.query(
-    #         new_points[:, i, :], k=nelem_to_search)
-    #
-    # for s in range(new_points.shape[0]):
-    #     if s % 200 == 0:
-    #         print(f"Interpolating element number {s}/{new_points.shape[0]}")
-    #     for i in range(gll_points):
-    #
-    #         element, ref_coord = _check_if_inside_element(
-    #             original_points, nearest_element_indices[s, i, :], new_points[s, i, :], dimensions)
-    #
-    #         coeffs = get_coefficients(
-    #             from_gll_order, to_gll_order, 4, ref_coord, dimensions)
-    #         values[s, :, i] = np.sum(
-    #             original_data[element, args, :] * coeffs, axis=1)
-    #
-    # utils.remove_and_create_empty_dataset(new, parameters, to_model_path,
-    #                                       to_coordinates_path)
-    #
-    # new[to_model_path][:, :, :] = values
 
 def linear_gll_2_ex(gll_model, exodus_model, gll_order=4, dimensions=3,
                     nelem_to_search=20, parameters="TTI",
@@ -386,6 +349,28 @@ def get_coefficients(a, b, c, ref_coord, dimension):
     elif dimension == 2:
         return GetInterpolationCoefficients2D(ref_coord)
 
+def boundary_box_check(point, gll_points) -> bool:
+    """
+    Check whether point is within the boundary of the box around 
+    the element.
+    
+    :param point: Point to investigate
+    :type point: numpy array
+    :param gll_points: Control nodes of the element
+    :type gll_points: numpy array
+    """
+    p_min, p_max = gll_points.min(axis=0), gll_points.max(axis=0)
+    dist = 0
+    if (point >= p_min).all() and (point <= p_max).all():
+        return True, dist
+    else:
+        center = np.mean(gll_points, axis=0)
+        dist += np.linalg.norm(point - center)
+        return False, dist
+        
+        
+
+
 
 def inverse_transform(point, gll_points, dimension):
     # return hypercube.InverseCoordinateTransformWrapper(n=4, d=3, pnt=point,
@@ -399,7 +384,7 @@ def inverse_transform(point, gll_points, dimension):
     # return salvus_fem._fcts[29][1](pnt=point, ctrlNodes=gll_points)
 
 
-def _find_gll_centroids(gll_coordinates, dimensions):
+def _find_gll_centroids(gll_coordinates, dimensions=3):
     """
     A function to find the centroid coordinate of gll model
     :param gll: gll model object
@@ -432,32 +417,36 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     """
     import warnings
     point = np.asfortranarray(point, dtype=np.float64)
-    ref_coords = np.zeros(len(nearest_elements))
-
+    dist = np.zeros(len(nearest_elements))
     for _i, element in enumerate(nearest_elements):
         gll_points = gll_model[element, :, :]
         gll_points = np.asfortranarray(gll_points)
-
-        ref_coord = inverse_transform(point=point, gll_points=gll_points,
-                                      dimension=dimension)
-        ref_coords[_i] = np.sum(np.abs(ref_coord))
-
-        if not np.any(np.abs(ref_coord) > 1.02):
-
+        inside, dist[_i] = boundary_box_check(point, gll_points)
+        if inside:
+            # I can implement this to save best results
+            ref_coord = inverse_transform(point=point, gll_points=gll_points,
+                                        dimension=dimension)
             return element, ref_coord
+        
+        # ref_coords[_i] = np.sum(np.abs(ref_coord))
+        # if CheckHull(ref_coord, gll_points):
+        #     return element, ref_coord
+        # if not np.any(np.abs(ref_coord) > 1.02):
+
+        #     return element, ref_coord
 
     warnings.warn("Could not find an element which this points fits into."
                   " Maybe you should add some tolerance."
                   " Will return the best searched element")
-    ind = np.where(ref_coords == np.min(ref_coords))[0][0]
-    # ind = ref_coords.index(ref_coords == np.min(ref_coords))
+    ind = np.where(dist == np.min(dist))[0][0]
+    # # ind = ref_coords.index(ref_coords == np.min(ref_coords))
     element = nearest_elements[ind]
     ref_coord = inverse_transform(point=point, gll_points=
                                   np.asfortranarray(gll_model[element, :, :],
                                                     dtype=np.float64),
                                   dimension=dimension)
-    # element = None
-    # ref_coord = None
+    # # element = None
+    # # ref_coord = None
 
     return element, ref_coord
 

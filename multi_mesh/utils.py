@@ -4,7 +4,6 @@ A few functions to help out with specific tasks
 import numpy as np
 from pyexodus import exodus
 from multi_mesh.io.exodus import Exodus
-from pykdtree.kdtree import KDTree
 import h5py
 
 

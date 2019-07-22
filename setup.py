@@ -4,13 +4,13 @@ from setuptools import find_packages
 from numpy.distutils.core import setup, Extension
 
 
-src = os.path.join("multi_mesh", 'src')
-lib = Extension('multi_mesh',
-                sources=[
-                    os.path.join(src, "centroid.c"),
-                    os.path.join(src, "trilinearinterpolator.c")],
-                extra_compile_args=["-O3", "-fopenmp"],
-                extra_link_args=['-lgomp'])
+#src = os.path.join("multi_mesh", 'src')
+#lib = Extension('multi_mesh',
+#                sources=[
+#                    os.path.join(src, "centroid.c"),
+#                    os.path.join(src, "trilinearinterpolator.c")],
+#                extra_compile_args=["-O3", "-fopenmp"],
+#                extra_link_args=['-lgomp'])
 
 
 def readme():
@@ -36,13 +36,13 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Physics'],
     entry_points='''
     [console_scripts]
     multi_mesh=multi_mesh.scripts.cli:cli
-    ''',
-    ext_package='multi_mesh.lib',
-    ext_modules=[lib]
+    '''
+    #ext_package='multi_mesh.lib',
+    #ext_modules=[lib]
 )

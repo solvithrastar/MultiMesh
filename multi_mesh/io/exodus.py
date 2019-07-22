@@ -1,8 +1,8 @@
 from pyexodus import exodus
 import numpy as np
-from multi_mesh.helpers import load_lib
+# from multi_mesh.helpers import load_lib
 
-lib = load_lib()
+# lib = load_lib()
 
 
 class Exodus(object):
