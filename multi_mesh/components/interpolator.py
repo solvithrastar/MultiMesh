@@ -14,9 +14,14 @@ import salvus_fem
 for name, func in salvus_fem._fcts:
     if name == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_4__Matrix_Derive" \
                "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 125, 1>":
-        GetInterpolationCoefficients3D = func
+        GetInterpolationCoefficients3D_order_4 = func
+    if name == "__GetInterpolationCoefficients__int_n0_2__int_n1_2__int_n2_2__Matrix_Derive" \
+               "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 27, 1>":
+        GetInterpolationCoefficients3D_order_2 = func
     if name == "__InverseCoordinateTransformWrapper__int_n_4__int_d_3":
-        InverseCoordinateTransformWrapper3D = func
+        InverseCoordinateTransformWrapper3D_4 = func
+    if name == "__InverseCoordinateTransformWrapper__int_n_2__int_d_3":
+        InverseCoordinateTransformWrapper3D_2 = func
     if name == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_0__Matrix_Derive" \
                "dA_Eigen::Matrix<double, 2, 1>__Matrix_DerivedB_Eigen::Matrix<double, 25, 1>":
         GetInterpolationCoefficients2D = func
@@ -180,7 +185,8 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
     :param nelem_to_search: amount of elements to check
     :param parameters: Parameters to be interpolated, possible to pass, "ISO", "TTI" or a list of parameters.
     """
-
+    from tqdm import tqdm
+    print("Initialization stage")
     original_points, original_data, original_params = utils.load_hdf5_params_to_memory(
         from_gll, from_model_path, from_coordinates_path)
 
@@ -225,30 +231,35 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
 
     all_new_points = new_points.reshape((new_points.shape[0]*new_points.shape[1], new_points.shape[2]))
     unique_new_points, recon = np.unique(all_new_points, return_inverse=True, axis=0)
-
+ 
     nearest_element_indices = np.zeros(shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int)
 
     _, nearest_element_indices[:, :] = original_tree.query(unique_new_points[:, :], k=nelem_to_search)
-    nearest_element_indices = np.floor(nearest_element_indices/gll_points).astype(int)
-    coeffs = np.zeros(shape=[unique_new_points.shape[0], len(parameters), gll_points])
+    nearest_element_indices = np.floor(nearest_element_indices/original_points.shape[1]).astype(int)
 
-    element = np.zeros(shape=len(unique_new_points))
+    # 
+    nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
+    unique_new_points = np.swapaxes(unique_new_points, 0, 1)
+    coeffs = np.zeros(shape=[len(parameters), original_points.shape[1], unique_new_points.shape[1]])
 
-    for i in range(unique_new_points.shape[0]):
-        if i % 10000 == 0:
-            print(f"Interpolating point number {i}/{unique_new_points.shape[0]}")
-        # Try to rearrange and loop through last index of array.
-        element[i], ref_coord = _check_if_inside_element(original_points, nearest_element_indices[i, :], unique_new_points[i,:], dimensions)
-        coeffs[i, 0, :] = get_coefficients(from_gll_order, to_gll_order, 4, ref_coord, dimensions)
+    element = np.zeros(shape=unique_new_points.shape[1])
+    print("Now we start interpolating")
+    for i in tqdm(range(unique_new_points.shape[1])):
+        # if i % 10000 == 0:
+        #     print(f"Interpolating point number {i}/{unique_new_points.shape[1]}")
+        element[i], ref_coord = _check_if_inside_element(original_points, nearest_element_indices[:, i], unique_new_points[:,i], dimensions)
+        coeffs[0, :, i] = get_coefficients(from_gll_order, from_gll_order, from_gll_order, ref_coord, dimensions)
 
     for i in range(len(parameters))[1:]:
-        coeffs[:, i, :] = coeffs[:, 0, :]
-
+        coeffs[i, :, :] = coeffs[0, :, :]
+    print("Interpolation done, Need to organize the results and write to file")
     element = element.astype(int)
 
     resample_data = original_data[element]
 
     # values = np.zeros(shape=[len(unique_new_points), len(parameters), gll_points], dtype=np.float64)
+    coeffs = np.swapaxes(coeffs, 0, 2)
+    coeffs = np.swapaxes(coeffs, 1, 2)
     values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)
     values = values[recon, :]
     values = values.reshape((new_points.shape[0], gll_points, len(args)))
@@ -345,7 +356,10 @@ def linear_gll_2_ex(gll_model, exodus_model, gll_order=4, dimensions=3,
 def get_coefficients(a, b, c, ref_coord, dimension):
 
     if dimension == 3:
-        return GetInterpolationCoefficients3D(ref_coord)
+        if a == 4:
+            return GetInterpolationCoefficients3D_order_4(ref_coord)
+        elif a == 2:
+            return GetInterpolationCoefficients3D_order_2(ref_coord)
     elif dimension == 2:
         return GetInterpolationCoefficients2D(ref_coord)
 
@@ -376,8 +390,10 @@ def inverse_transform(point, gll_points, dimension):
     # return hypercube.InverseCoordinateTransformWrapper(n=4, d=3, pnt=point,
     #                                       ctrlNodes=gll_points)
     if dimension == 3:
-        return InverseCoordinateTransformWrapper3D(pnt=point,
-                                                   ctrlNodes=gll_points)
+        if len(gll_points) == 125:
+            return InverseCoordinateTransformWrapper3D_4(pnt=point, ctrlNodes=gll_points)
+        if len(gll_points) == 27:
+            return InverseCoordinateTransformWrapper3D_2(pnt=point, ctrlNodes=gll_points)
     elif dimension == 2:
         return InverseCoordinateTransformWrapper2D(pnt=point,
                                                    ctrlNodes=gll_points)
@@ -425,7 +441,7 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
         if inside:
             # I can implement this to save best results
             ref_coord = inverse_transform(point=point, gll_points=gll_points,
-                                        dimension=dimension)
+                                          dimension=dimension)
             return element, ref_coord
         
         # ref_coords[_i] = np.sum(np.abs(ref_coord))

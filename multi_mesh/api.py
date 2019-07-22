@@ -17,10 +17,10 @@ for name, func in salvus_fem._fcts:
     #     GetInterpolationCoefficients3D = func
     if name == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_4__Matrix_Derive" \
                "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 125, 1>":
-        GetInterpolationCoefficients3D_44 = func
-    if name == "__GetInterpolationCoefficients__int_n0_2__int_n1_2__int_n2_4__Matrix_Derive" \
+        GetInterpolationCoefficients3D_order_4 = func
+    if name == "__GetInterpolationCoefficients__int_n0_2__int_n1_2__int_n2_2__Matrix_Derive" \
                "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 27, 1>":
-        GetInterpolationCoefficients3D_22 = func
+        GetInterpolationCoefficients3D_order_2 = func
     if name == "__GetInterpolationCoefficients__int_n0_2__int_n1_4__int_n2_4__Matrix_Derive" \
                "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 27, 1>":
         GetInterpolationCoefficients3D_24 = func
@@ -589,9 +589,11 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
 
     return element, ref_coord
 
-to_gll = "/Users/solvi/PhD/workspace/Interpolation/fulastur.h5"
-from_gll = "/Users/solvi/PhD/workspace/Interpolation/hressastur.h5"
-gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3, nelem_to_search=50, parameters=["VP", "VS", "RHO"], from_model_path="MODEL/data", to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates", to_coordinates_path="MODEL/coordinates")
+from_gll = "/Users/solvi/PhD/workspace/Interpolation/smoothiesem_nlat04.h5"
+# from_gll = "/Users/solvi/PhD/workspace/Interpolation/fulastur.h5"
+to_gll = "/Users/solvi/PhD/workspace/Interpolation/Globe3D_csem_200.h5"
+# to_gll = "/Users/solvi/PhD/workspace/Interpolation/hressastur.h5"
+gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=2, dimensions=3, nelem_to_search=50, parameters=['RHO', 'VP', 'VS', 'QKAPPA', 'QMU'], from_model_path="MODEL/data", to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates", to_coordinates_path="MODEL/coordinates")
 # mesh = "/Users/solvi/PhD/workspace/Interpolation/Globe3D_csem_50.e"
 
 # exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="ISO", model_path="MODEL/data", coordinates_path="MODEL/coordinates")
