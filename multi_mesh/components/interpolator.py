@@ -7,8 +7,6 @@ import numpy as np
 from multi_mesh import utils
 from pykdtree.kdtree import KDTree
 import h5py
-
-
 import salvus_fem
 # Buffer the salvus_fem functions, so accessing becomes much faster
 for name, func in salvus_fem._fcts:
@@ -81,7 +79,7 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3,
     utils.remove_and_create_empty_dataset(gll, parameters, model_path,
                                           coordinates_path)
     param_exodus = np.zeros(shape=(len(parameters),
-                            len(exodus.get_nodal_field(parameters[0]))))
+                                   len(exodus.get_nodal_field(parameters[0]))))
     values = np.zeros(shape=(len(parameters),
                              len(exodus.get_nodal_field(parameters[0]))))
     for _i, param in enumerate(parameters):
@@ -94,17 +92,17 @@ def exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3,
                                              npoints,
                                              np.ascontiguousarray(
                                                  nearest_element_indices[
-                                                    i, :, :]),
+                                                     i, :, :]),
                                              connectivity,
                                              enclosing_elem_node_indices[
-                                                    i, :, :],
+                                                 i, :, :],
                                              exopoints,
                                              weights[i, :, :],
                                              np.ascontiguousarray(
                                                  gll_coords[:, i, :]))
         assert nfailed is 0, f"{nfailed} points could not be interpolated."
         values = np.sum(param_exodus[:,
-                        enclosing_elem_node_indices[i, :, :]] * weights[
+                                     enclosing_elem_node_indices[i, :, :]] * weights[
                         i, :, :], axis=2)
 
         gll[model_path][:, :, i] = values.T
@@ -125,7 +123,7 @@ def gll_2_exodus(gll_model, exodus_model, gll_order=4, dimensions=3,
         gll_points = np.array(gll_model[coordinates_path][:], dtype=np.float64)
         gll_data = gll_model[model_path][:]
         params = gll_model[model_path].attrs.get(
-                    "DIMENSION_LABELS")[1].decode()
+            "DIMENSION_LABELS")[1].decode()
         parameters = params[2:-2].replace(" ", "").split("|")
 
     centroids = _find_gll_centroids(gll_points, dimensions)
@@ -155,7 +153,7 @@ def gll_2_exodus(gll_model, exodus_model, gll_order=4, dimensions=3,
                   f"{s+1}{len(exodus.points)}")
         element, ref_coord = _check_if_inside_element(gll_points,
                                                       nearest_element_indices[
-                                                       s, :],
+                                                          s, :],
                                                       point, dimensions)
 
         coeffs = get_coefficients(4, 4, 0, ref_coord, dimensions)
@@ -167,10 +165,11 @@ def gll_2_exodus(gll_model, exodus_model, gll_order=4, dimensions=3,
         exodus.attach_field(param, values[:, i])
         i += 1
 
-def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
+
+def gll_2_gll(from_gll, to_gll,
               nelem_to_search=20, parameters="ISO", from_model_path="MODEL/data",
               to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates",
-              to_coordinates_path="MODEL/coordinates"):
+              to_coordinates_path="MODEL/coordinates", gradient=False):
     """
     Interpolate parameters between two gll models.
     It loads from_gll to memory, looks at the points of the to_gll and
@@ -180,21 +179,29 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
 
     :param from_gll: path to gll mesh to interpolate from
     :param to_gll: path to gll mesh to interpolate to
-    :param from_gll_order: order of gll_model
     :param dimensions: dimension of meshes.
     :param nelem_to_search: amount of elements to check
-    :param parameters: Parameters to be interpolated, possible to pass, "ISO", "TTI" or a list of parameters.
+    :param parameters: Parameters to be interpolated, possible to pass, "ISO", 
+    "TTI" or a list of parameters.
+    :param gradient: If this is a gradient to be added to another gradient,
+    only put true if you want to add on top of a currently existing gradient
     """
     from tqdm import tqdm
+
     print("Initialization stage")
     original_points, original_data, original_params = utils.load_hdf5_params_to_memory(
         from_gll, from_model_path, from_coordinates_path)
+
+    dimensions = original_points.shape[2]
+    from_gll_order = int(round(original_data.shape[2] ** (1.0/dimensions))) - 1
 
     parameters = utils.pick_parameters(parameters)
     assert set(parameters) <= set(
         original_params), f"Original mesh does not have all the parameters you wish to interpolate. You asked for {parameters}, mesh has {original_params}"
 
-    all_old_points = original_points.reshape(original_points.shape[0] * original_points.shape[1], original_points.shape[2])
+    all_old_points = original_points.reshape(
+        original_points.shape[0] * original_points.shape[1], original_points.shape[2])
+
     original_tree = KDTree(all_old_points)
     new = h5py.File(to_gll, 'r+')
 
@@ -228,27 +235,33 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
     parameters = [parameters[x] for x in args]
 
     gll_points = new[to_coordinates_path].shape[1]
+    # Prepare all the points in order to loop through it faster.
+    all_new_points = new_points.reshape(
+        (new_points.shape[0]*new_points.shape[1], new_points.shape[2]))
+    unique_new_points, recon = np.unique(
+        all_new_points, return_inverse=True, axis=0)
 
-    all_new_points = new_points.reshape((new_points.shape[0]*new_points.shape[1], new_points.shape[2]))
-    unique_new_points, recon = np.unique(all_new_points, return_inverse=True, axis=0)
- 
-    nearest_element_indices = np.zeros(shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int)
+    nearest_element_indices = np.zeros(
+        shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int)
 
-    _, nearest_element_indices[:, :] = original_tree.query(unique_new_points[:, :], k=nelem_to_search)
-    nearest_element_indices = np.floor(nearest_element_indices/original_points.shape[1]).astype(int)
+    _, nearest_element_indices[:, :] = original_tree.query(
+        unique_new_points[:, :], k=nelem_to_search)
+    nearest_element_indices = np.floor(
+        nearest_element_indices/original_points.shape[1]).astype(int)
 
-    # 
     nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
     unique_new_points = np.swapaxes(unique_new_points, 0, 1)
-    coeffs = np.zeros(shape=[len(parameters), original_points.shape[1], unique_new_points.shape[1]])
+    coeffs = np.zeros(
+        shape=[len(parameters), original_points.shape[1], unique_new_points.shape[1]])
 
     element = np.zeros(shape=unique_new_points.shape[1])
+
     print("Now we start interpolating")
     for i in tqdm(range(unique_new_points.shape[1])):
-        # if i % 10000 == 0:
-        #     print(f"Interpolating point number {i}/{unique_new_points.shape[1]}")
-        element[i], ref_coord = _check_if_inside_element(original_points, nearest_element_indices[:, i], unique_new_points[:,i], dimensions)
-        coeffs[0, :, i] = get_coefficients(from_gll_order, from_gll_order, from_gll_order, ref_coord, dimensions)
+        element[i], ref_coord = _check_if_inside_element(
+            original_points, nearest_element_indices[:, i], unique_new_points[:, i], dimensions)
+        coeffs[0, :, i] = get_coefficients(
+            from_gll_order, from_gll_order, from_gll_order, ref_coord, dimensions)
 
     for i in range(len(parameters))[1:]:
         coeffs[i, :, :] = coeffs[0, :, :]
@@ -256,101 +269,18 @@ def gll_2_gll(from_gll, to_gll, from_gll_order=4, to_gll_order=4, dimensions=3,
     element = element.astype(int)
 
     resample_data = original_data[element]
+    # Reorder everything to be able to save to file in correct format.
+    coeffs = np.swapaxes(coeffs, 0, 2).swapaxes(1, 2)
+    values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)[
+        recon, :].reshape((new_points.shape[0], gll_points, len(args))).swapaxes(1, 2)
 
-    # values = np.zeros(shape=[len(unique_new_points), len(parameters), gll_points], dtype=np.float64)
-    coeffs = np.swapaxes(coeffs, 0, 2)
-    coeffs = np.swapaxes(coeffs, 1, 2)
-    values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)
-    values = values[recon, :]
-    values = values.reshape((new_points.shape[0], gll_points, len(args)))
-    values = np.swapaxes(values, 1, 2)
+    if gradient:
+        existing = new[to_model_path]
+        values += existing
     utils.remove_and_create_empty_dataset(new, parameters, to_model_path,
                                           to_coordinates_path)
 
     new[to_model_path][:, :, :] = values
-
-
-def linear_gll_2_ex(gll_model, exodus_model, gll_order=4, dimensions=3,
-                    nelem_to_search=20, parameters="TTI",
-                    model_path="MODEL/data",
-                    coordinates_path="MODEL/coordinates", gradient=False):
-    """
-    Interpolate parameters from gll file to exodus model. This will mostly be
-    used to interpolate gradients to begin with.
-    :param gll_model: path to gll_model
-    :param exodus_model: path_to_exodus_model
-    :param parameters: Currently not used but will be fixed later
-    """
-    with h5py.File(gll_model, 'r') as gll_model:
-        gll_points = np.array(gll_model[coordinates_path][:], dtype=np.float64)
-        gll_data = gll_model[model_path][:]
-        params = gll_model[model_path].attrs.get(
-                    "DIMENSION_LABELS")[1].decode()
-        parameters = params[2:-2].replace(" ", "").split("|")
-
-    centroids = _find_gll_centroids(gll_points, dimensions)
-    print("centroids", np.shape(centroids))
-    # Build a KDTree of the centroids to look for nearest elements
-    print("Building KDTree")
-    centroid_tree = KDTree(centroids)
-
-    nelem_to_search = 2
-
-    print("Read in mesh")
-    exodus = Exodus(exodus_model, mode="a")
-    # Find nearest elements
-    print("Querying the KDTree")
-    print(exodus.points.shape)
-    # if exodus.points.shape[1] == 3:
-    #     exodus.points = exodus.points[:, :-1]
-    _, nearest_element_indices = centroid_tree.query(exodus.points,
-                                                     k=nelem_to_search)
-    npoints = exodus.npoint
-    # parameters = utils.pick_parameters(parameters)
-    values = np.zeros(shape=[npoints, len(parameters)])
-    print(parameters)
-    s = 0
-
-    for i in range(gll_points):
-        if (i+1) % 10 == 0 or i == gll_points-1 or i == 0:
-            print(f"Trilinear interpolation for gll point: {i+1}/{gll_points}")
-        nfailed += lib.triLinearInterpolator(nelem_to_search,
-                                             npoints,
-                                             np.ascontiguousarray(
-                                                 nearest_element_indices[
-                                                    i, :, :]),
-                                             connectivity,
-                                             enclosing_elem_node_indices[
-                                                    i, :, :],
-                                             exopoints,
-                                             weights[i, :, :],
-                                             np.ascontiguousarray(
-                                                 gll_coords[:, i, :]))
-        assert nfailed is 0, f"{nfailed} points could not be interpolated."
-        values = np.sum(param_exodus[:,
-                        enclosing_elem_node_indices[i, :, :]] * weights[
-                        i, :, :], axis=2)
-
-        gll[model_path][:, :, i] = values.T
-
-
-    for point in exodus.points:
-        if s == 0 or (s+1) % 1000 == 0:
-            print(f"Now I'm looking at point number:"
-                  f"{s+1}{len(exodus.points)}")
-        element, ref_coord = _check_if_inside_element(gll_points,
-                                                      nearest_element_indices[
-                                                       s, :],
-                                                      point, dimensions)
-
-        coeffs = get_coefficients(4, 4, 0, ref_coord, dimensions)
-        values[s, :] = np.sum(gll_data[element, :, :] * coeffs, axis=1)
-        s += 1
-    i = 0
-    for param in parameters:
-        exodus.attach_field(param, np.zeros_like(values[:, i]))
-        exodus.attach_field(param, values[:, i])
-        i += 1
 
 
 def get_coefficients(a, b, c, ref_coord, dimension):
@@ -363,11 +293,12 @@ def get_coefficients(a, b, c, ref_coord, dimension):
     elif dimension == 2:
         return GetInterpolationCoefficients2D(ref_coord)
 
+
 def boundary_box_check(point, gll_points) -> bool:
     """
-    Check whether point is within the boundary of the box around 
+    Check whether point is within the boundary of the box around
     the element.
-    
+
     :param point: Point to investigate
     :type point: numpy array
     :param gll_points: Control nodes of the element
@@ -381,14 +312,10 @@ def boundary_box_check(point, gll_points) -> bool:
         center = np.mean(gll_points, axis=0)
         dist += np.linalg.norm(point - center)
         return False, dist
-        
-        
-
 
 
 def inverse_transform(point, gll_points, dimension):
-    # return hypercube.InverseCoordinateTransformWrapper(n=4, d=3, pnt=point,
-    #                                       ctrlNodes=gll_points)
+
     if dimension == 3:
         if len(gll_points) == 125:
             return InverseCoordinateTransformWrapper3D_4(pnt=point, ctrlNodes=gll_points)
@@ -397,7 +324,6 @@ def inverse_transform(point, gll_points, dimension):
     elif dimension == 2:
         return InverseCoordinateTransformWrapper2D(pnt=point,
                                                    ctrlNodes=gll_points)
-    # return salvus_fem._fcts[29][1](pnt=point, ctrlNodes=gll_points)
 
 
 def _find_gll_centroids(gll_coordinates, dimensions=3):
@@ -418,7 +344,6 @@ def _find_gll_centroids(gll_coordinates, dimensions=3):
         centroids[:, d] = np.mean(gll_coordinates[:, :, d], axis=1,
                                   dtype=np.float64)
 
-    # print("Found centroids")
     return centroids
 
 
@@ -439,17 +364,9 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
         gll_points = np.asfortranarray(gll_points)
         inside, dist[_i] = boundary_box_check(point, gll_points)
         if inside:
-            # I can implement this to save best results
             ref_coord = inverse_transform(point=point, gll_points=gll_points,
                                           dimension=dimension)
             return element, ref_coord
-        
-        # ref_coords[_i] = np.sum(np.abs(ref_coord))
-        # if CheckHull(ref_coord, gll_points):
-        #     return element, ref_coord
-        # if not np.any(np.abs(ref_coord) > 1.02):
-
-        #     return element, ref_coord
 
     warnings.warn("Could not find an element which this points fits into."
                   " Maybe you should add some tolerance."
@@ -457,19 +374,8 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     ind = np.where(dist == np.min(dist))[0][0]
     # # ind = ref_coords.index(ref_coords == np.min(ref_coords))
     element = nearest_elements[ind]
-    ref_coord = inverse_transform(point=point, gll_points=
-                                  np.asfortranarray(gll_model[element, :, :],
-                                                    dtype=np.float64),
+    ref_coord = inverse_transform(point=point, gll_points=np.asfortranarray(gll_model[element, :, :],
+                                                                            dtype=np.float64),
                                   dimension=dimension)
-    # # element = None
-    # # ref_coord = None
 
     return element, ref_coord
-
-
-# gll_2_exodus("/home/solvi/workspace/InterpolationTests/multi_mesh_test/gradient.h5",
-#              "/home/solvi/workspace/InterpolationTests/multi_mesh_test/Globe3D_csem_70.e",
-#              gll_order=4, dimensions=3,
-#                  nelem_to_search=20, parameters="TTI",
-#                  model_path="MODEL/data",
-#                  coordinates_path="MODEL/coordinates", gradient=False)
