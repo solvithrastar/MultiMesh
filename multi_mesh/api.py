@@ -452,10 +452,10 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     return element, ref_coord
 
 # to_gll = "/Users/solvi/PhD/workspace/Interpolation/smoothiesem_nlat04.h5"
-from_gll = "/Users/solvi/PhD/workspace/Interpolation/fulastur.h5"
+# from_gll = "/Users/solvi/PhD/workspace/Interpolation/fulastur.h5"
 # from_gll = "/Users/solvi/PhD/workspace/Interpolation/Globe3D_csem_60.h5"
-to_gll = "/Users/solvi/PhD/workspace/Interpolation/hressastur.h5"
-gll_2_gll(from_gll, to_gll, nelem_to_search=50, parameters=['RHO', 'VP', 'VS'], from_model_path="MODEL/data", to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates", to_coordinates_path="MODEL/coordinates", gradient=False)
+# to_gll = "/Users/solvi/PhD/workspace/Interpolation/hressastur.h5"
+# gll_2_gll(from_gll, to_gll, nelem_to_search=50, parameters=['RHO', 'VP', 'VS'], from_model_path="MODEL/data", to_model_path="MODEL/data", from_coordinates_path="MODEL/coordinates", to_coordinates_path="MODEL/coordinates", gradient=False)
 # mesh = "/Users/solvi/PhD/workspace/Interpolation/Globe3D_csem_50.e"
 
 # exodus_2_gll(mesh, gll_model, gll_order=4, dimensions=3, nelem_to_search=20, parameters="ISO", model_path="MODEL/data", coordinates_path="MODEL/coordinates")
