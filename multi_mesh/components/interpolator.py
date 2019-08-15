@@ -176,6 +176,9 @@ def gll_2_gll(from_gll, to_gll,
     assembles a list of unique points which it interpolates onto.
     It then reconstructs the point values based on the initial to_gll points
     and saves it to file.
+    Currently not stable if the interpolated parameters are not the same as 
+    the parameters on the mesh to be interpolated from. Reccommend interpolating
+    all the parameters from the from_gll mesh.
 
     :param from_gll: path to gll mesh to interpolate from
     :param to_gll: path to gll mesh to interpolate to
@@ -194,7 +197,6 @@ def gll_2_gll(from_gll, to_gll,
 
     dimensions = original_points.shape[2]
     from_gll_order = int(round(original_data.shape[2] ** (1.0/dimensions))) - 1
-
     parameters = utils.pick_parameters(parameters)
     assert set(parameters) <= set(
         original_params), f"Original mesh does not have all the parameters you wish to interpolate. You asked for {parameters}, mesh has {original_params}"
@@ -208,13 +210,16 @@ def gll_2_gll(from_gll, to_gll,
     new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
 
     permutation = np.arange(0, len(parameters))
-    for _i, param in enumerate(original_params):
-        permutation[_i] = parameters.index(param)
+    i = 0
+    for param in original_params:
+        if param in parameters:
+            permutation[i] = parameters.index(param)
+            i += 1
 
     # In case we are not interpolating all the parameters.
-    if len(permutation) != len(original_params):
-        for i in range(len(original_params) - len(permutation)):
-            permutation.append(np.max(permutation) + 1)
+    #if len(parameters) != len(original_params):
+    #    for i in range(len(original_params) - len(parameters)):
+    #        permutation[len(parameters) + i] = np.max(permutation) + 1
 
     # Check if there is some need for reordering of parameters.
     reorder = False
