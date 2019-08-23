@@ -195,22 +195,6 @@ def gll_2_gll(from_gll, to_gll,
     original_points, original_data, original_params, elem_model, elem_params = utils.load_hdf5_params_to_memory(
         from_gll, from_model_path, from_coordinates_path, "MODEL/element_data")
 
-    # I will start by removing all fluid elements from original mesh.
-    # Later I will do the same thing to the other mesh.
-    for _i, attr in enumerate(elem_params):
-        if attr == "fluid":
-            print(f"Found fluid at position {_i}")
-            fluid_elements = np.array(elem_model[:, _i], dtype=bool)
-
-    # Now we remove fluid elements. Should be ok to remove from all.
-    # Now plan is to store all values and replace fluid values with
-    # fluids in the end.
-    # But what can I then do with the elements in the core
-    print(fluid_elements)
-    solid_elements = np.invert(fluid_elements)
-    #original_data = original_data[solid_elements]
-    #original_points = original_points[solid_elements]
-
     dimensions = original_points.shape[2]
     from_gll_order = int(round(original_data.shape[2] ** (1.0/dimensions))) - 1
     parameters = utils.pick_parameters(parameters)
@@ -222,14 +206,15 @@ def gll_2_gll(from_gll, to_gll,
 
     original_tree = KDTree(all_old_points)
     new = h5py.File(to_gll, 'r+')
-
+    
+    # We look for the fluid elements, we wan't to avoid solids getting fluid values
     new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
     elem_params = new["MODEL/element_data"].attrs.get("DIMENSION_LABELS")[1].decode()
     elem_params = elem_params[2:-2].replace(" ", "").split("|")
     fluid_index = elem_params.index("fluid")
     fluid_elements = new["MODEL/element_data"][:, fluid_index].astype(bool)
     solid_elements = np.invert(fluid_elements)
-    #masked_points = np.ma.masked_array(new_points, mask=fluid_elements)
+    # Save the current values in order to fix any case of solid getting fluid values
     new_values = np.copy(new[to_model_path][:])
 
     permutation = np.arange(0, len(parameters))
@@ -238,11 +223,6 @@ def gll_2_gll(from_gll, to_gll,
         if param in parameters:
             permutation[i] = parameters.index(param)
             i += 1
-
-    # In case we are not interpolating all the parameters.
-    #if len(parameters) != len(original_params):
-    #    for i in range(len(original_params) - len(parameters)):
-    #        permutation[len(parameters) + i] = np.max(permutation) + 1
 
     # Check if there is some need for reordering of parameters.
     reorder = False
