@@ -192,8 +192,24 @@ def gll_2_gll(from_gll, to_gll,
     from tqdm import tqdm
 
     print("Initialization stage")
-    original_points, original_data, original_params = utils.load_hdf5_params_to_memory(
-        from_gll, from_model_path, from_coordinates_path)
+    original_points, original_data, original_params, elem_model, elem_params = utils.load_hdf5_params_to_memory(
+        from_gll, from_model_path, from_coordinates_path, "MODEL/element_data")
+
+    # I will start by removing all fluid elements from original mesh.
+    # Later I will do the same thing to the other mesh.
+    for _i, attr in enumerate(elem_params):
+        if attr == "fluid":
+            print(f"Found fluid at position {_i}")
+            fluid_elements = np.array(elem_model[:, _i], dtype=bool)
+
+    # Now we remove fluid elements. Should be ok to remove from all.
+    # Now plan is to store all values and replace fluid values with
+    # fluids in the end.
+    # But what can I then do with the elements in the core
+    print(fluid_elements)
+    solid_elements = np.invert(fluid_elements)
+    #original_data = original_data[solid_elements]
+    #original_points = original_points[solid_elements]
 
     dimensions = original_points.shape[2]
     from_gll_order = int(round(original_data.shape[2] ** (1.0/dimensions))) - 1
@@ -208,6 +224,13 @@ def gll_2_gll(from_gll, to_gll,
     new = h5py.File(to_gll, 'r+')
 
     new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
+    elem_params = new["MODEL/element_data"].attrs.get("DIMENSION_LABELS")[1].decode()
+    elem_params = elem_params[2:-2].replace(" ", "").split("|")
+    fluid_index = elem_params.index("fluid")
+    fluid_elements = new["MODEL/element_data"][:, fluid_index].astype(bool)
+    solid_elements = np.invert(fluid_elements)
+    #masked_points = np.ma.masked_array(new_points, mask=fluid_elements)
+    new_values = np.copy(new[to_model_path][:])
 
     permutation = np.arange(0, len(parameters))
     i = 0
@@ -278,6 +301,15 @@ def gll_2_gll(from_gll, to_gll,
     coeffs = np.swapaxes(coeffs, 0, 2).swapaxes(1, 2)
     values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)[
         recon, :].reshape((new_points.shape[0], gll_points, len(args))).swapaxes(1, 2)
+    values[~solid_elements] = new_values[~solid_elements]
+
+    vs_index = parameters.index("VS")
+    # look at fake fluid values
+    zero_vs = np.where(values[:, vs_index, :] == 0.0)
+    print("Fixing fake fluids")
+    for _i, elem in enumerate(zero_vs[0]):
+        if solid_elements[elem]:
+            values[elem, vs_index, zero_vs[1][_i]] = new_values[elem, vs_index, zero_vs[1][_i]]
 
     if gradient:
         existing = new[to_model_path]

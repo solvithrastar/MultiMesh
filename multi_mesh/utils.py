@@ -120,7 +120,7 @@ def pick_parameters(parameters):
         parameters = ["VPV", "VPH", "VSV", "VSH", "RHO", "ETA", "QKAPPA",
                       "QMU"]
     elif parameters == "ISO":
-        parameters = ["RHO", "VP", "VS", "QKAPPA", "QMU"]
+        parameters = ["QKAPPA", "QMU", "RHO", "VP", "VS"]
     else:
         parameters = parameters
 
@@ -142,7 +142,7 @@ def load_exodus(file: str, find_centroids=True):
         return exodus
 
 
-def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str):
+def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str, elem_model: str):
     """
     Load coordinates, data and parameter list from and hdf5 file into memory
     """
@@ -150,7 +150,10 @@ def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str):
     with h5py.File(gll, 'r') as mesh:
         points = np.array(mesh[coordinates][:], dtype=np.float64)
         data = mesh[model][:]
+        element_model = mesh[elem_model][:]
+        elem_params = mesh[elem_model].attrs.get("DIMENSION_LABELS")[1].decode()
+        elem_params = elem_params[2:-2].replace(" ", "").split("|")
         params = mesh[model].attrs.get("DIMENSION_LABELS")[1].decode()
         params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
 
-    return points, data, params
+    return points, data, params, element_model, elem_params
