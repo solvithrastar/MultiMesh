@@ -192,8 +192,8 @@ def gll_2_gll(from_gll, to_gll,
     from tqdm import tqdm
 
     print("Initialization stage")
-    original_points, original_data, original_params, elem_model, elem_params = utils.load_hdf5_params_to_memory(
-        from_gll, from_model_path, from_coordinates_path, "MODEL/element_data")
+    original_points, original_data, original_params = utils.load_hdf5_params_to_memory(
+        from_gll, from_model_path, from_coordinates_path)
 
     dimensions = original_points.shape[2]
     from_gll_order = int(round(original_data.shape[2] ** (1.0/dimensions))) - 1
@@ -208,6 +208,7 @@ def gll_2_gll(from_gll, to_gll,
     new = h5py.File(to_gll, 'r+')
     
     # We look for the fluid elements, we wan't to avoid solids getting fluid values
+    # which can happen if one gll point hits a solid value.
     new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
     elem_params = new["MODEL/element_data"].attrs.get("DIMENSION_LABELS")[1].decode()
     elem_params = elem_params[2:-2].replace(" ", "").split("|")
@@ -223,7 +224,9 @@ def gll_2_gll(from_gll, to_gll,
         if param in parameters:
             permutation[i] = parameters.index(param)
             i += 1
-
+    """
+    The reordering of parameters is currently not used, what is used is simply to
+    interpolate all parameters from the parent mesh to the receiving mesh
     # Check if there is some need for reordering of parameters.
     reorder = False
     for i in range(len(permutation)):
@@ -237,13 +240,18 @@ def gll_2_gll(from_gll, to_gll,
                 break
 
     if reorder:
+        print("I have to reorder parameters")
         args = np.argsort(permutation).astype(int)
     else:
         args = np.arange(start=0, stop=len(permutation)).astype(int)
     parameters = [parameters[x] for x in args]
+    print(parameters)
+    """
 
     gll_points = new[to_coordinates_path].shape[1]
     # Prepare all the points in order to loop through it faster.
+    # Points are prepared in a way thet we find unique gll points
+    # and loop through those to save time.
     all_new_points = new_points.reshape(
         (new_points.shape[0]*new_points.shape[1], new_points.shape[2]))
     unique_new_points, recon = np.unique(
@@ -286,12 +294,14 @@ def gll_2_gll(from_gll, to_gll,
     vs_index = parameters.index("VS")
     # look at fake fluid values
     zero_vs = np.where(values[:, vs_index, :] == 0.0)
-    print("Fixing fake fluids")
-    for _i, elem in enumerate(zero_vs[0]):
+    print("If any fluid values went to the solid part we fix it")
+    for _i, elem in enumerate(np.unique(zero_vs[0])):
         if solid_elements[elem]:
-            values[elem, vs_index, zero_vs[1][_i]] = new_values[elem, vs_index, zero_vs[1][_i]]
+            values[elem, :, :] = new_values[elem, :, :]
+        # values[elem, :, zero_vs[1][_i]] = new_values[elem, :, zero_vs[1][_i]]
 
     if gradient:
+        # Gradient implementations still need to be looked at.
         existing = new[to_model_path]
         values += existing
     utils.remove_and_create_empty_dataset(new, parameters, to_model_path,
