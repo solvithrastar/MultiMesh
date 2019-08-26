@@ -288,7 +288,7 @@ def gll_2_gll(from_gll, to_gll,
     # Reorder everything to be able to save to file in correct format.
     coeffs = np.swapaxes(coeffs, 0, 2).swapaxes(1, 2)
     values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)[
-        recon, :].reshape((new_points.shape[0], gll_points, len(args))).swapaxes(1, 2)
+        recon, :].reshape((new_points.shape[0], gll_points, len(parameters))).swapaxes(1, 2)
     values[~solid_elements] = new_values[~solid_elements]
 
     vs_index = parameters.index("VS")
