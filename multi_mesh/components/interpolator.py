@@ -197,7 +197,8 @@ def gll_2_gll(from_gll, to_gll,
 
     dimensions = original_points.shape[2]
     from_gll_order = int(round(original_data.shape[2] ** (1.0/dimensions))) - 1
-    parameters = utils.pick_parameters(parameters)
+    parameters = original_params
+    # parameters = utils.pick_parameters(parameters)
     assert set(parameters) <= set(
         original_params), f"Original mesh does not have all the parameters you wish to interpolate. You asked for {parameters}, mesh has {original_params}"
 
@@ -276,9 +277,16 @@ def gll_2_gll(from_gll, to_gll,
     for i in tqdm(range(unique_new_points.shape[1])):
         element[i], ref_coord = _check_if_inside_element(
             original_points, nearest_element_indices[:, i], unique_new_points[:, i], dimensions)
+        if np.any(np.isnan(ref_coord)):
+            print(f"REF_COORD IS NAN!!: {ref_coord}")
+
         coeffs[0, :, i] = get_coefficients(
             from_gll_order, from_gll_order, from_gll_order, ref_coord, dimensions)
-
+    k = np.isnan(element)
+    print(f"NAN DETECTED for elements: {np.where(k)}")
+    k = np.isnan(coeffs)
+    print(f"NAN DETECTED for coeffs: {np.where(k)}")
+    print(f"AMOUNT OF NANS: {np.where(k)[0].shape}")
     for i in range(len(parameters))[1:]:
         coeffs[i, :, :] = coeffs[0, :, :]
     print("Interpolation done, Need to organize the results and write to file")
@@ -289,21 +297,25 @@ def gll_2_gll(from_gll, to_gll,
     coeffs = np.swapaxes(coeffs, 0, 2).swapaxes(1, 2)
     values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)[
         recon, :].reshape((new_points.shape[0], gll_points, len(parameters))).swapaxes(1, 2)
-    values[~solid_elements] = new_values[~solid_elements]
+    k = np.isnan(values)
+    print(f"NAN DETECTED for values: {np.where(k)}")
 
-    vs_index = parameters.index("VS")
-    # look at fake fluid values
-    zero_vs = np.where(values[:, vs_index, :] == 0.0)
-    print("If any fluid values went to the solid part we fix it")
-    for _i, elem in enumerate(np.unique(zero_vs[0])):
-        if solid_elements[elem]:
-            values[elem, :, :] = new_values[elem, :, :]
-        # values[elem, :, zero_vs[1][_i]] = new_values[elem, :, zero_vs[1][_i]]
+    if not gradient:
+        values[~solid_elements] = new_values[~solid_elements]
 
-    if gradient:
-        # Gradient implementations still need to be looked at.
-        existing = new[to_model_path]
-        values += existing
+        vs_index = parameters.index("VS")
+        # look at fake fluid values
+        zero_vs = np.where(values[:, vs_index, :] == 0.0)
+        print("If any fluid values accidentally went to the solid part we fix it")
+        for _i, elem in enumerate(np.unique(zero_vs[0])):
+            if solid_elements[elem]:
+                values[elem, :, :] = new_values[elem, :, :]
+
+    # This needs to be implemented as a sum not gradient.
+    # if gradient:
+    #     # Gradient implementations still need to be looked at.
+    #     existing = new[to_model_path]
+    #     values += existing
     utils.remove_and_create_empty_dataset(new, parameters, to_model_path,
                                           to_coordinates_path)
 
@@ -345,7 +357,9 @@ def inverse_transform(point, gll_points, dimension):
 
     if dimension == 3:
         if len(gll_points) == 125:
-            return InverseCoordinateTransformWrapper3D_4(pnt=point, ctrlNodes=gll_points)
+            # return InverseCoordinateTransformWrapper3D_4(pnt=point, ctrlNodes=gll_points)
+            # print(f"gll_points: {gll_points.shape}")
+            return salvus_fem.hypercube.InverseCoordinateTransformWrapper(n=4, d=3, pnt=point, ctrlNodes=gll_points)
         if len(gll_points) == 27:
             return InverseCoordinateTransformWrapper3D_2(pnt=point, ctrlNodes=gll_points)
     elif dimension == 2:
@@ -393,6 +407,11 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
         if inside:
             ref_coord = inverse_transform(point=point, gll_points=gll_points,
                                           dimension=dimension)
+            if np.any(np.isnan(ref_coord)):
+                # print("Cought a nan ref")
+                dist[_i] = np.max(dist) + 14.0
+                continue
+
             return element, ref_coord
 
     warnings.warn("Could not find an element which this points fits into."
@@ -404,5 +423,8 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     ref_coord = inverse_transform(point=point, gll_points=np.asfortranarray(gll_model[element, :, :],
                                                                             dtype=np.float64),
                                   dimension=dimension)
+    print("ended up in shit")
+    if np.any(np.isnan(ref_coord)):
+        ref_coord = np.array([0.645, -0.5, 0.0])
 
     return element, ref_coord
