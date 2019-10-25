@@ -7,6 +7,7 @@ import numpy as np
 from multi_mesh import utils
 from pykdtree.kdtree import KDTree
 import h5py
+import sys
 import salvus_fem
 # Buffer the salvus_fem functions, so accessing becomes much faster
 for name, func in salvus_fem._fcts:
@@ -204,7 +205,6 @@ def gll_2_gll(from_gll, to_gll,
 
     all_old_points = original_points.reshape(
         original_points.shape[0] * original_points.shape[1], original_points.shape[2])
-
     original_tree = KDTree(all_old_points)
     new = h5py.File(to_gll, 'r+')
     
@@ -282,6 +282,10 @@ def gll_2_gll(from_gll, to_gll,
 
         coeffs[0, :, i] = get_coefficients(
             from_gll_order, from_gll_order, from_gll_order, ref_coord, dimensions)
+        if np.any(coeffs[0,:,i] >= 2.0):
+            print(f"coeffs are big! {np.max(np.abs(coeffs))} \n")
+            print(ref_coord)
+            print(ref_coord.type)
     k = np.isnan(element)
     print(f"NAN DETECTED for elements: {np.where(k)}")
     k = np.isnan(coeffs)
@@ -293,6 +297,8 @@ def gll_2_gll(from_gll, to_gll,
     element = element.astype(int)
 
     resample_data = original_data[element]
+    k = np.isnan(resample_data)
+    print(f"NAN DETECTED for resample_data: {np.where(k)}")
     # Reorder everything to be able to save to file in correct format.
     coeffs = np.swapaxes(coeffs, 0, 2).swapaxes(1, 2)
     values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)[
@@ -326,6 +332,7 @@ def get_coefficients(a, b, c, ref_coord, dimension):
 
     if dimension == 3:
         if a == 4:
+            # return salvus_fem.tensor_gll.GetInterpolationCoefficients(4, 4, 4, pnt=ref_coord)
             return GetInterpolationCoefficients3D_order_4(ref_coord)
         elif a == 2:
             return GetInterpolationCoefficients3D_order_2(ref_coord)
@@ -400,31 +407,39 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     import warnings
     point = np.asfortranarray(point, dtype=np.float64)
     dist = np.zeros(len(nearest_elements))
+    inside = np.zeros(len(nearest_elements), dtype=bool)
     for _i, element in enumerate(nearest_elements):
         gll_points = gll_model[element, :, :]
         gll_points = np.asfortranarray(gll_points)
-        inside, dist[_i] = boundary_box_check(point, gll_points)
-        if inside:
+        inside[_i], dist[_i] = boundary_box_check(point, gll_points)
+        if inside[_i]:
             ref_coord = inverse_transform(point=point, gll_points=gll_points,
                                           dimension=dimension)
             if np.any(np.isnan(ref_coord)):
                 # print("Cought a nan ref")
-                dist[_i] = np.max(dist) + 14.0
                 continue
 
-            return element, ref_coord
+            if np.all(np.abs(ref_coord) <= 1.02):
+                return element, ref_coord
 
     warnings.warn("Could not find an element which this points fits into."
                   " Maybe you should add some tolerance."
                   " Will return the best searched element")
-    ind = np.where(dist == np.min(dist))[0][0]
+    if np.any(inside):
+        ind = np.where(inside)
+        ind = np.where(dist == np.min(dist[ind]))[0][0]
+    else:
+        ind = np.where(dist == np.min(dist))[0][0]
     # # ind = ref_coords.index(ref_coords == np.min(ref_coords))
     element = nearest_elements[ind]
+
+
     ref_coord = inverse_transform(point=point, gll_points=np.asfortranarray(gll_model[element, :, :],
                                                                             dtype=np.float64),
                                   dimension=dimension)
-    print("ended up in shit")
+    # print("ended up in shit")
     if np.any(np.isnan(ref_coord)):
-        ref_coord = np.array([0.645, -0.5, 0.0])
-
+        ref_coord = np.array([0.645, -0.5, 0.22])
+    if np.any(np.abs(ref_coord) >= 1.02):
+        ref_coord = np.array([0.645, -0.5, 0.22])
     return element, ref_coord
