@@ -58,9 +58,11 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     :param backwards: Backrotation uses transpose of rot matrix
     """
 
-    event_vec = [np.cos(event_loc[0]) * np.cos(event_loc[1]),
-                 np.cos(event_loc[0]) * np.sin(event_loc[1]),
-                 np.sin(event_loc[0])]
+    event_vec = [
+        np.cos(event_loc[0]) * np.cos(event_loc[1]),
+        np.cos(event_loc[0]) * np.sin(event_loc[1]),
+        np.sin(event_loc[0]),
+    ]
     event_vec = np.array(event_vec) / np.linalg.norm(event_vec)
     north_vec = np.array([0.0, 0.0, 1.0])
 
@@ -68,37 +70,45 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     rotate_axis /= np.linalg.norm(rotate_axis)
     # Make sure that both axis and angle make sense with r-hand-rule
     rot_angle = np.arccos(np.dot(event_vec, north_vec))
-    rot_mat = get_rot_matrix(rot_angle, rotate_axis[0], rotate_axis[1],
-                             rotate_axis[2])
+    rot_mat = get_rot_matrix(
+        rot_angle, rotate_axis[0], rotate_axis[1], rotate_axis[2]
+    )
     if backwards:
         rot_mat = rot_mat.T
 
     mesh = exodus(mesh, mode="a")
     points = mesh.get_coords()
-    rotated_points = rotate(x=points[0], y=points[1],
-                            z=points[2], matrix=rot_mat)
+    rotated_points = rotate(
+        x=points[0], y=points[1], z=points[2], matrix=rot_mat
+    )
     rotated_points = rotated_points.T
 
-    mesh.put_coords(rotated_points[:, 0], rotated_points[:, 1],
-                    rotated_points[:, 2])
+    mesh.put_coords(
+        rotated_points[:, 0], rotated_points[:, 1], rotated_points[:, 2]
+    )
 
     # It's not rotating in the right direction but that remains to be
     # configured properly.
 
 
-def remove_and_create_empty_dataset(gll_model, parameters: list,
-                                    model: str, coordinates: str):
+def remove_and_create_empty_dataset(
+    gll_model, parameters: list, model: str, coordinates: str
+):
     """
     Take gll dataset, delete it and create an empty one ready for the new
     set of parameters that are to be input to the mesh.
     """
     if model in gll_model:
         del gll_model[model]
-    gll_model.create_dataset(name=model,
-                             shape=(gll_model[coordinates].shape[0],
-                                    len(parameters),
-                                    gll_model[coordinates].shape[1]),
-                             dtype=np.float64)
+    gll_model.create_dataset(
+        name=model,
+        shape=(
+            gll_model[coordinates].shape[0],
+            len(parameters),
+            gll_model[coordinates].shape[1],
+        ),
+        dtype=np.float64,
+    )
 
     create_dimension_labels(gll_model, parameters)
 
@@ -109,16 +119,24 @@ def create_dimension_labels(gll, parameters: list):
     :param gll_model: The gll mesh which needs the new dimstring
     :param parameters: The parameters which should be in the dimstring
     """
-    dimstr = '[ ' + ' | '.join(parameters) + ' ]'
-    gll['MODEL/data'].dims[0].label = 'element'
-    gll['MODEL/data'].dims[1].label = dimstr
-    gll['MODEL/data'].dims[2].label = 'point'
+    dimstr = "[ " + " | ".join(parameters) + " ]"
+    gll["MODEL/data"].dims[0].label = "element"
+    gll["MODEL/data"].dims[1].label = dimstr
+    gll["MODEL/data"].dims[2].label = "point"
 
 
 def pick_parameters(parameters):
     if parameters == "TTI":
-        parameters = ["VPV", "VPH", "VSV", "VSH", "RHO", "ETA", "QKAPPA",
-                      "QMU"]
+        parameters = [
+            "VPV",
+            "VPH",
+            "VSV",
+            "VSH",
+            "RHO",
+            "ETA",
+            "QKAPPA",
+            "QMU",
+        ]
     elif parameters == "ISO":
         parameters = ["QKAPPA", "QMU", "RHO", "VP", "VS"]
     else:
@@ -147,10 +165,26 @@ def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str):
     Load coordinates, data and parameter list from and hdf5 file into memory
     """
 
-    with h5py.File(gll, 'r') as mesh:
+    with h5py.File(gll, "r") as mesh:
         points = np.array(mesh[coordinates][:], dtype=np.float64)
         data = mesh[model][:]
         params = mesh[model].attrs.get("DIMENSION_LABELS")[1].decode()
         params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
 
     return points, data, params
+
+
+def get_unique_points(points: np.array):
+    """
+    Take an array of coordinates and find the unique coordinates. Returns
+    the unique coordinates and an array of indices that can be used to
+    reconstruct the previous array.
+    
+    :param points: Coordinates
+    :type points: np.array
+    """
+    all_points = points.reshape(
+        (points.shape[0] * points.shape[1], points.shape[2])
+    )
+    unique_points, recon = np.unique(all_points, return_inverse=True, axis=0)
+    return unique_points, recon
