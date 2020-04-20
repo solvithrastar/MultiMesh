@@ -50,6 +50,53 @@ at the time. Hopefully I'll have time one day to make it more abstract.
 """
 
 
+def query_model(
+    coordinates,
+    model,
+    nelem_to_search=20,
+    parameters="TTI",
+    model_path="MODEL/data",
+    coordinates_path="MODEL/coordinates",
+):
+    """
+    Provide an array of coordinates, returns an array with model parameters
+    for each of these coordinates.
+
+    :param coordinates: Array of coordinates
+    :type coordinates: np.array
+    :param model: Salvus mesh with model stored on it
+    :type model: hdf5 salvus mesh file
+    :param nelem_to_search: Number of elements to KDtree query, defaults to 20
+    :type nelem_to_search: int, optional
+    :param model_path: Where are parameters stored?, defaults to "MODEL/data"
+    :type model_path: str, optional
+    :param coordinates_path: Where are coordinates stored?, defaults to "MODEL/coordinates"
+    :type coordinates_path: str, optional
+    :return: An array of parameters
+    :rtype: np.array
+    """
+    start = time.time()
+    from multi_mesh.components.interpolator import query_model
+
+    values = query_model(
+        coordinates=coordinates,
+        model=model,
+        nelem_to_search=nelem_to_search,
+        model_path=model_path,
+        coordinates_path=coordinates_path,
+    )
+
+    end = time.time()
+    runtime = end - start
+
+    if runtime >= 60:
+        runtime = runtime / 60
+        print(f"Finished in time: {runtime} minutes")
+    else:
+        print(f"Finished in time: {runtime} seconds")
+    return values
+
+
 def exodus_2_gll(
     mesh,
     gll_model,

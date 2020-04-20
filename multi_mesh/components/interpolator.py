@@ -44,6 +44,86 @@ for name, func in salvus.fem._fcts:
         CheckHull = func
 
 
+def query_model(
+    coordinates, model, nelem_to_search, model_path, coordinates_path,
+):
+    """
+    Provide an array of coordinates, returns an array with model parameters
+    for each of these coordinates.
+
+    :param coordinates: Array of coordinates
+    :type coordinates: np.array
+    :param model: Salvus mesh with model stored on it
+    :type model: hdf5 salvus mesh file
+    :param nelem_to_search: Number of elements to KDtree query
+    :type nelem_to_search: int
+    :param model_path: Where are parameters stored?
+    :type model_path: str
+    :param coordinates_path: Where are coordinates stored?
+    :type coordinates_path: str
+    :return: An array of parameters
+    :rtype: np.array
+    """
+    print("Initialization stage")
+    (
+        original_points,
+        original_data,
+        original_params,
+    ) = utils.load_hdf5_params_to_memory(model, model_path, coordinates_path)
+
+    dimensions = original_points.shape[2]
+    gll_order = int(round(original_data.shape[2] ** (1.0 / dimensions))) - 1
+
+    # Reshape points to remove the dimension of the gll points
+    all_original_points = original_points.reshape(
+        original_points.shape[0] * original_points.shape[1],
+        original_points.shape[2],
+    )
+    original_tree = KDTree(all_original_points)
+
+    assert (
+        coordinates.shape[1] == 3
+    ), "Make sure coordinates array has shape N,3"
+
+    _, nearest_element_indices = original_tree.query(
+        coordinates, k=nelem_to_search
+    )
+    # We need to get the arrays ready for the interpolation function
+    nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
+    coordinates = np.swapaxes(coordinates, 0, 1)
+    coeffs_empty = np.zeros(
+        shape=(
+            len(original_params),
+            original_points.shape[1],
+            coordinates.shape[1],
+        )
+    )
+    nearest_element_indices = np.floor(
+        nearest_element_indices / original_points.shape[1]
+    ).astype(int)
+    element_empty = np.zeros(shape=coordinates.shape[1])
+    elements, coeffs = find_gll_coeffs(
+        original_coordinates=original_points,
+        coordinates=coordinates,
+        nearest_elements=nearest_element_indices,
+        coeffs=coeffs_empty,
+        element=element_empty,
+        dimensions=dimensions,
+        from_gll_order=gll_order,
+        ignore_hard_elements=False,
+    )
+
+    # return elements, coeffs
+    for i in range(len(original_params))[1:]:
+        coeffs[i, :, :] = coeffs[0, :, :]
+    print("Interpolation done, need to organize the results")
+    elements = elements.astype(int)
+    coeffs = np.swapaxes(coeffs, 0, 2).swapaxes(1, 2)
+    resample_data = original_data[elements]
+    values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)[:, :]
+    return values
+
+
 def exodus_2_gll(
     mesh,
     gll_model,
@@ -320,6 +400,12 @@ def gll_2_gll(
                     allow_pickle=True,
                 )
                 loop = False
+                k = np.isnan(coeffs)
+                # print(f"NAN DETECTED for coeffs: {np.where(k)}")
+                # print(f"AMOUNT OF NANS: {np.where(k)[0].shape}")
+                assert np.where(k)[0].shape[0] == 0, print(
+                    "Stored coeffs matrix has NaNs"
+                )
     # Prepare all the points in order to loop through it faster.
     # Points are prepared in a way thet we find unique gll points
     # and loop through those to save time.
@@ -360,6 +446,7 @@ def gll_2_gll(
             element=element_empty,
             dimensions=dimensions,
             from_gll_order=from_gll_order,
+            ignore_hard_elements=True,
         )
 
         # k = np.isnan(element)
@@ -509,7 +596,9 @@ def _find_gll_centroids(gll_coordinates, dimensions=3):
     return centroids
 
 
-def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
+def _check_if_inside_element(
+    gll_model, nearest_elements, point, dimension, ignore_hard_elements
+):
     """
     A function to figure out inside which element the point to be interpolated
     is.
@@ -518,7 +607,7 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
     :param point: The actual point
     :return: the Index of the element which point is inside
     """
-    # import warnings
+    import warnings
 
     point = np.asfortranarray(point, dtype=np.float64)
     dist = np.zeros(len(nearest_elements))
@@ -532,20 +621,20 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
                 point=point, gll_points=gll_points, dimension=dimension
             )
             if np.any(np.isnan(ref_coord)):
-                # print("Cought a nan ref")
                 continue
 
             if np.all(np.abs(ref_coord) <= 1.02):
                 return element, ref_coord
-
-    # warnings.warn(
-    #     "Could not find an element which this points fits into."
-    #     " Maybe you should add some tolerance."
-    #     " Will return the best searched element"
-    # )
+    if not ignore_hard_elements:
+        warnings.warn(
+            "Could not find an element which this points fits into."
+            " Maybe you should add some tolerance."
+            " Will return the best searched element"
+        )
     # I need something here, maybe just put to coeffs to zero as this
     # mostly happens for the gradients.
     # Then I would have to smooth on inversion grid though.
+
     if np.any(inside):
         ind = np.where(inside)
         ind = np.where(dist == np.min(dist[ind]))[0][0]
@@ -561,8 +650,10 @@ def _check_if_inside_element(gll_model, nearest_elements, point, dimension):
         ),
         dimension=dimension,
     )
-    # print("ended up in shit")
+    print("ended up in shit")
     if np.any(np.isnan(ref_coord)):
+        if not ignore_hard_elements:
+            raise ValueError("Can't find an appropriate element.")
         ref_coord = np.array([0.645, -0.5, 0.22])
     if np.any(np.abs(ref_coord) >= 1.02):
         ref_coord = np.array([0.645, -0.5, 0.22])
@@ -577,6 +668,7 @@ def find_gll_coeffs(
     element: np.array,
     dimensions: int,
     from_gll_order: int,
+    ignore_hard_elements: bool,
 ):
     """
     Loop through coordinates, figure out which elements they are in and
@@ -595,6 +687,9 @@ def find_gll_coeffs(
     :type dimensions: int
     :param from_gll_order: Polynomial order of mesh to interpolate from
     :type from_gll_order: int
+    :param ignore_hard_elements: Sometimes there are problems with funky
+    smoothiesem elements, this ignores them and gives its best value
+    :type ignore_hard_elements: bool
     """
     for i in tqdm(range(coordinates.shape[1])):
         element[i], ref_coord = _check_if_inside_element(
@@ -602,9 +697,10 @@ def find_gll_coeffs(
             nearest_elements[:, i],
             coordinates[:, i],
             dimensions,
+            ignore_hard_elements,
         )
-        # if np.any(np.isnan(ref_coord)):
-        #     print(f"REF_COORD IS NAN!!: {ref_coord}")
+        if np.max(np.abs(ref_coord)) > 1.3:
+            print(f"REF_COORD IS NAN!!: {ref_coord}")
 
         coeffs[0, :, i] = get_coefficients(
             from_gll_order,
