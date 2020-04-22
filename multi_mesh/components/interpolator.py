@@ -28,10 +28,18 @@ for name, func in salvus.fem._fcts:
         "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 27, 1>"
     ):
         GetInterpolationCoefficients3D_order_2 = func
+    if (
+        name
+        == "__GetInterpolationCoefficients__int_n0_1__int_n1_1__int_n2_1__Matrix_Derive"
+        "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 8, 1>"
+    ):
+        GetInterpolationCoefficients3D_order_1 = func
     if name == "__InverseCoordinateTransformWrapper__int_n_4__int_d_3":
         InverseCoordinateTransformWrapper3D_4 = func
     if name == "__InverseCoordinateTransformWrapper__int_n_2__int_d_3":
         InverseCoordinateTransformWrapper3D_2 = func
+    if name == "__InverseCoordinateTransformWrapper__int_n_1__int_d_3":
+        InverseCoordinateTransformWrapper3D_1 = func
     if (
         name
         == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_0__Matrix_Derive"
@@ -531,6 +539,8 @@ def get_coefficients(a, b, c, ref_coord, dimension):
             return GetInterpolationCoefficients3D_order_4(ref_coord)
         elif a == 2:
             return GetInterpolationCoefficients3D_order_2(ref_coord)
+        elif a == 1:
+            return GetInterpolationCoefficients3D_order_1(ref_coord)
     elif dimension == 2:
         return GetInterpolationCoefficients2D(ref_coord)
 
@@ -566,6 +576,10 @@ def inverse_transform(point, gll_points, dimension):
             )
         if len(gll_points) == 27:
             return InverseCoordinateTransformWrapper3D_2(
+                pnt=point, ctrlNodes=gll_points
+            )
+        if len(gll_points) == 8:
+            return InverseCoordinateTransformWrapper3D_1(
                 pnt=point, ctrlNodes=gll_points
             )
     elif dimension == 2:
