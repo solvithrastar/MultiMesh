@@ -59,8 +59,8 @@ def query_model(
     Provide an array of coordinates, returns an array with model parameters
     for each of these coordinates.
 
-    :param coordinates: Array of coordinates
-    :type coordinates: np.array
+    :param coordinates: Array of coordinates in lat lon depth_in_m
+    :type coordinates: np.array, dimensions N,3
     :param model: Salvus mesh with model stored on it
     :type model: hdf5 salvus mesh file
     :param nelem_to_search: Number of elements to KDtree query
@@ -72,6 +72,8 @@ def query_model(
     :return: An array of parameters
     :rtype: np.array
     """
+    from multi_mesh.utils import latlondepth_to_xyz
+
     print("Initialization stage")
     (
         original_points,
@@ -92,7 +94,7 @@ def query_model(
     assert (
         coordinates.shape[1] == 3
     ), "Make sure coordinates array has shape N,3"
-
+    coordinates = latlondepth_to_xyz(latlondepth=coordinates)
     _, nearest_element_indices = original_tree.query(
         coordinates, k=nelem_to_search
     )
@@ -664,7 +666,6 @@ def _check_if_inside_element(
         ),
         dimension=dimension,
     )
-    print("ended up in shit")
     if np.any(np.isnan(ref_coord)):
         if not ignore_hard_elements:
             raise ValueError("Can't find an appropriate element.")

@@ -188,3 +188,26 @@ def get_unique_points(points: np.array):
     )
     unique_points, recon = np.unique(all_points, return_inverse=True, axis=0)
     return unique_points, recon
+
+
+def lat2colat(lat):
+    return 90.0 - lat
+
+
+def latlondepth_to_xyz(latlondepth: np.array):
+    """
+    Coordinate transformation from lat lon depth to x y z.
+    :param latlondepth: [description]
+    :type latlondepth: np.array
+    :param xyz: [description]
+    :type xyz: np.array
+    """
+    r_earth = 6371000.0
+    r = r_earth - latlondepth[:, 2]
+    colat = lat2colat(latlondepth[:, 0])
+    colat, lon = map(np.deg2rad, [colat, latlondepth[:, 1]])
+    x = r * np.sin(colat) * np.cos(lon)
+    y = r * np.sin(colat) * np.sin(lon)
+    z = r * np.cos(colat)
+    xyz = np.array([x, y, z]).T
+    return xyz
