@@ -2,9 +2,14 @@
 A few functions to help out with specific tasks
 """
 import numpy as np
+import pathlib
+
 from pyexodus import exodus
 from multi_mesh.io.exodus import Exodus
 import h5py
+import xarray as xr
+from typing import Union, List, Tuple
+import salvus.mesh.unstructured_mesh
 
 
 def get_rot_matrix(angle, x, y, z):
@@ -174,20 +179,261 @@ def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str):
     return points, data, params
 
 
-def get_unique_points(points: np.array):
+def create_dataset(
+    file: Union[pathlib.Path, str],
+    layers: Union[List[int], str] = "all",
+    parameters: List[str] = ["all"],
+    coords: str = "cartesian",
+) -> xr.Dataset:
+    """
+    Create an xarray dataset with the relevant information from a file
+
+    :param file: Path to a file with a Salvus mesh
+    :type file: Union[pathlib.Path, str]
+    :param layers: If you only want specific layers, specific inputs can also
+        be 'crust', 'mantle', 'core', 'nocore' and 'all', defaults to "all"
+    :type layers: Union[List[int], str], optional
+    :param parameters: parameters to include in dataset, defaults to ["all"]
+    :type parameters: List[str], optional
+    :param coords: What sort of coordinates should we store?, defaults to
+        "cartesian"
+    :type coords: str, optional
+    :return: Returns an xarray dataset
+    :rtype: xarray.Dataset
+    """
+    from salvus.mesh.unstructured_mesh import UnstructuredMesh
+
+    # First we deal with the input variables, especially the layers
+
+    mesh = UnstructuredMesh.from_h5(file)
+    layers, i_should_mask = _assess_layers(mesh=mesh, layers=layers)
+
+    # We apply some masking of the data and store the masking array
+    if i_should_mask:
+        mask = _create_mask(mesh=mesh, layers=layers)
+    else:
+        mask = np.ones_like(mesh.elemental_fields["layers"], dtype=bool)
+
+    # We create and return the xarray dataset
+    return _create_dataset(
+        mesh=mesh, mask=mask, parameters=parameters, coords=coords
+    )
+
+
+def _create_dataset(
+    mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
+    mask: np.ndarray,
+    parameters: List[str],
+    coords: str,
+):
+    """
+    Create an xarray dataset with relevant information from mesh
+
+    :param mesh: Salvus UnstructuredMesh object
+    :type mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh
+    :param mask: An array to mask elements out
+    :type mask: numpy.ndarray
+    :param parameters: A list of parameters to use
+    :type parameters: List[str]
+    :param coords: What sort of coordinates should we store?, defaults to
+        "cartesian"
+    :type coords: str, optional
+    """
+    if parameters[0] == "all":
+        parameters = list(mesh.element_nodal_fields.keys())
+        if "radius" in parameters:
+            parameters.remove("radius")
+        if "z_node_1D" in parameters:
+            parameters.remove("z_node_1D")
+
+    # Create dictionary for xarray
+    dat = {}
+    for param in parameters:
+        dat[param] = (
+            ["radius", "colatitude", "latitude"],
+            np.array(
+                [
+                    mesh.element_nodal_fields[param][mask].ravel(),
+                    mesh.element_nodal_fields[param][mask].ravel(),
+                    mesh.element_nodal_fields[param][mask].ravel(),
+                ],
+            ).T,
+        )
+        # If I just repeat this one for three axes this might work
+    if coords == "spherical":
+        r_mesh = mesh.element_nodal_fields["z_node_1D"][mask] * 6371000.0
+        nodes = mesh.get_element_nodes()[mask]
+        x = np.square(nodes[:, :, 0]) + np.square(nodes[:, :, 1])
+        u_mesh = np.arctan2(np.sqrt(x), nodes[:, :, 2])  # latitude
+        v_mesh = np.arctan2(nodes[:, :, 1], nodes[:, :, 0])  # longitude
+        element = np.repeat(
+            np.arange(0, mesh.nelem, dtype=int)[mask], mesh.nodes_per_element
+        )
+        print(f"Element: {element.shape}")
+        print(f"rmesh: {r_mesh.shape}")
+        print(f"u_mesh: {u_mesh.ravel().shape}")
+        ds = xr.Dataset(
+            dat,
+            coords={
+                "radius": r_mesh.ravel(),
+                "colatitude": u_mesh.ravel(),
+                "longitude": v_mesh.ravel(),
+                # "point": np.arange(0, mesh.nodes_per_element),
+            },
+        )
+        ds.radius.attrs["units"] = "m"
+        ds.colatitude.attrs["units"] = "deg"
+        ds.longitude.attrs["units"] = "deg"
+    elif coords == "cartesian":
+        ds = xr.Dataset(
+            dat,
+            coords={
+                "x": (
+                    ["element", "point"],
+                    mesh.get_element_nodes()[mask][:, :, 0],
+                ),
+                "y": (
+                    ["element", "point"],
+                    mesh.get_element_nodes()[mask][:, :, 1],
+                ),
+                "z": (
+                    ["element", "point"],
+                    mesh.get_element_nodes()[mask][:, :, 2],
+                ),
+                "element": np.arange(0, mesh.nelem)[mask],
+                "point": np.arange(0, mesh.nodes_per_element),
+            },
+        )
+        ds.x.attrs["units"] = "m"
+        ds.y.attrs["units"] = "m"
+        ds.z.attrs["units"] = "m"
+    else:
+        raise ValueError(f"Coordinate type: {coords} is not supported")
+    gll_order = int(np.round(mesh.nodes_per_element ** (1.0 / 3.0)) - 1.0)
+    ds.attrs["gll_order"] = gll_order
+
+    return ds
+
+
+def _create_mask(
+    mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh, layers: List[int],
+) -> np.ndarray:
+    """
+    Create an array which is used to mask elements in the dataset
+
+    :param mesh: A salvus mesh
+    :type mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh
+    :param layers: A list with the layers used in the interpolation
+    :type layers: List[int]
+    :return: An array with the indices of the used elements
+    :rtype: np.ndarray
+    """
+    # We create a boolean array to represent the mask
+    mask = np.zeros_like(mesh.elemental_fields["layer"], dtype=bool)
+    for layer in layers:
+        mask = np.logical_or(mask, mesh.elemental_fields["layer"] == layer)
+    return mask
+
+
+def _assess_layers(
+    mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
+    layers: Union[List[int], str],
+) -> Tuple[List[int], bool]:
+    """
+    Figure out which numerical layers are needed
+
+    :param data: The data file already read with h5py
+    :type data: salvus.mesh.unstructured_mesh.UnstructuredMesh
+    :param layers: Description of layers used to mask mesh
+    :type layers: Union[List[int], str]
+    """
+    # We sort layers in descending order in order to make moho_idx make sense
+    mesh_layers = np.sort(np.unique(mesh.elemental_fields["layer"]))[::-1]
+
+    # If requested layers are a list, we just check validity of list and return
+    if isinstance(layers, list):
+        if np.max(layers) > np.max(mesh_layers):
+            raise ValueError("Requested layers not in mesh")
+        if np.min(layers) < np.min(mesh_layers):
+            raise ValueError("Requested layers not in mesh")
+        if set(int(mesh_layers)) == set(int(layers)):
+            mask = False
+        else:
+            mask = True
+        return layers, mask
+
+    # Else, we have to figure stuff out
+    if not isinstance(layers, str):
+        raise ValueError(
+            f"Input for layers needs to be a list of one of: "
+            f"{available_layers}"
+        )
+    available_layers = ["all", "crust", "mantle", "core", "nocore"]
+    # The layers are arranged outwards from the core
+    moho_idx = int(mesh.global_strings["moho_idx"])
+    mask = True
+    if layers == "all":
+        return mesh_layers, False
+    elif layers == "crust":
+        return mesh_layers[:moho_idx], mask
+    else:
+        o_core_idx = mesh.elemental_fields["layer"][
+            np.where(mesh.elemental_fields["fluid"] == 1)[0][0]
+        ]
+        o_core_idx = np.where(mesh_layers == o_core_idx)[0][0]
+        if layers == "mantle":
+            return mesh_layers[moho_idx:o_core_idx], mask
+        elif layers == "core":
+            return mesh_layers[o_core_idx:], mask
+        elif layers == "nocore":
+            return mesh_layers[:o_core_idx], mask
+        else:
+            raise ValueError(
+                f"Only allowed string layer inputs are: {available_layers}"
+            )
+
+
+def get_unique_points(points: Union[np.array, str], mesh=False, layers=None):
     """
     Take an array of coordinates and find the unique coordinates. Returns
     the unique coordinates and an array of indices that can be used to
     reconstruct the previous array.
     
-    :param points: Coordinates
-    :type points: np.array
+    :param points: Coordinates, or a file
+    :type points: Union[numpy.array, str]
+    :param mesh: If you want to take points straight from a mesh,
+        then points are a file
+    :type mesh: bool
+    :param layers: If points are restricted to specific layers.
+    :type layers: Union[List[int], str]
     """
-    all_points = points.reshape(
-        (points.shape[0] * points.shape[1], points.shape[2])
-    )
-    unique_points, recon = np.unique(all_points, return_inverse=True, axis=0)
-    return unique_points, recon
+    if not mesh:
+        all_points = points.reshape(
+            (points.shape[0] * points.shape[1], points.shape[2])
+        )
+        return np.unique(all_points, return_inverse=True, axis=0)
+    else:
+        from salvus.mesh.unstructured_mesh import UnstructuredMesh
+
+        # First we deal with the input variables, especially the layers
+        mesh = UnstructuredMesh.from_h5(points)
+        layers, i_should_mask = _assess_layers(mesh=mesh, layers=layers)
+        if i_should_mask:
+            mask = _create_mask(mesh=mesh, layers=layers)
+        else:
+            mask = np.ones_like(mesh.elemental_fields["layers"], dtype=bool)
+        points = mesh.get_element_nodes()[mask]
+        points = points.reshape(
+            (points.shape[0] * points.shape[1], points.shape[2])
+        )
+        r_mesh_1d = (
+            mesh.element_nodal_fields["z_node_1D"][mask].ravel() * 6371000.0
+        )
+        return (
+            np.unique(points, return_index=True, return_inverse=True, axis=0),
+            mask,
+            r_mesh_1d,
+        )
 
 
 def lat2colat(lat):
