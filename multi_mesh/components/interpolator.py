@@ -407,6 +407,95 @@ def gll_2_gll_rectsphere(
     mesh.write_h5("test.h5")
 
 
+def gll_2_gll_layered(
+    from_gll,
+    to_gll,
+    layers,
+    nelem_to_search=20,
+    parameters="ISO",
+    from_model_path="MODEL/data",
+    to_model_path="MODEL/data",
+    from_coordinates_path="MODEL/coordinates",
+    to_coordinates_path="MODEL/coordinates",
+    gradient=False,
+    stored_array=None,
+):
+    """
+    Interpolate parameters between two gll models.
+    It loads from_gll to memory, looks at the points of the to_gll and
+    assembles a list of unique points which it interpolates onto.
+    It then reconstructs the point values based on the initial to_gll points
+    and saves it to file.
+    Currently not stable if the interpolated parameters are not the same as 
+    the parameters on the mesh to be interpolated from. Recommend interpolating
+    all the parameters from the from_gll mesh.
+
+    :param from_gll: path to gll mesh to interpolate from
+    :param to_gll: path to gll mesh to interpolate to
+    :param dimensions: dimension of meshes.
+    :param nelem_to_search: amount of elements to check
+    :param parameters: Parameters to be interpolated, possible to pass, "ISO", 
+    "TTI" or a list of parameters.
+    :param gradient: If this is a gradient to be added to another gradient,
+    only put true if you want to add on top of a currently existing gradient
+    :param stored_array: If you want to store the array for future
+    interpolations. If the array exists in that path it will be loaded. Store
+    elements under elements.npy and coeffs under coeffs.npy
+    """
+    from salvus.mesh.unstructured_mesh import UnstructuredMesh
+
+    print("Initialization stage")
+    print(f"Stored array: {stored_array}")
+    original_mesh = UnstructuredMesh.from_h5(from_gll)
+    original_mask = utils.create_layer_mask(mesh=original_mesh, layers=layers)
+    original_points = original_mesh.get_element_nodes()[original_mask]
+
+    dimensions = original_points.shape[2]
+    original_gll_order = (
+        int(round(original_mesh.nodes_per_element ** (1.0 / dimensions))) - 1
+    )
+    original_tree = KDTree(
+        original_points.reshape(
+            original_points.shape[0] * original_points.shape[1], dimensions
+        )
+    )
+    new_mesh = UnstructuredMesh.from_h5(to_gll)
+    # Stored array stuff here
+
+    unique_new_points, mask, _ = utils.get_unique_points(
+        points=new_mesh, mesh=True, layers=layers
+    )
+    recon = unique_new_points[2].copy()
+    unique_new_points = unique_new_points[0]
+    # I should try the tri-linear interpolation here too.
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
+    nearest_element_indices = np.zeros(
+        shape=[unique_new_points, nelem_to_search], dtype=np.int
+    )
+    _, nearest_element_indices[:, :] = original_tree.query(
+        unique_new_points[:, :], k=nelem_to_search
+    )
+    nearest_element_indices = np.floor(
+        nearest_element_indices / original_mesh.nodes_per_element
+    ).astype(int)
+    parameters = ["VSV", "VSH", "VPV", "VPH"]
+
+    # Time consuming part
+    new_values = fill_value_array(
+        new_coordinates=unique_new_points,
+        nearest_elements=nearest_element_indices,
+        original_mesh=original_mesh,
+        original_mask=original_mask,
+        parameters=parameters,
+        dimensions=dimensions,
+        from_gll_order=original_gll_order,
+    )
+    new_values = new_values[recon]
+    for _i, param in enumerate(parameters):
+        new_mesh.element_nodal_fields[param][mask] = new_values[_i]
+    new_mesh.write_h5("test.h5")
+
+
 def gll_2_gll(
     from_gll,
     to_gll,
@@ -788,6 +877,72 @@ def _check_if_inside_element(
     if np.any(np.abs(ref_coord) >= 1.02):
         ref_coord = np.array([0.645, -0.5, 0.22])
     return element, ref_coord
+
+
+def fill_value_array(
+    # original_coordinates: np.ndarray,
+    new_coordinates: np.ndarray,
+    nearest_elements: np.ndarray,
+    original_mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
+    original_mask: np.ndarray,
+    parameters: List[str],
+    # new_values: np.ndarray,
+    dimensions: int = 3,
+    from_gll_order: int = 2,
+):
+    """
+    Similar to find_gll_coeffs except this one fills the parameter matrix
+    on the fly, thus getting rid of the memory intensive matrix computations
+    at the end of the loop.
+
+    :param original_coordinates: An array of coordinates from the original
+        mesh
+    :type original_coordinates: numpy.ndarray
+    :param new_coordinates: An array of coordinates from the new mesh
+    :type new_coordinates: numpy.ndarray
+    :param nearest_elements: An array describing which are the closest
+        elements to the point we want to find the value for
+    :type nearest_elements: numpy.ndarray
+    :param original_mesh: salvus mesh object for original mesh
+    :type original_mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh
+    :param original_mask: boolean array used to mask the points of the
+        original mesh
+    :type original_mask: numpy.ndarray
+    :param new_values: An empty array of values to fill, we need to relate
+        this to parameters in some way
+    :type new_values: numpy.ndarray
+    :param dimensions: How many dimensions there are in the mesh, defaults
+        to 3
+    :type dimensions: int, optional
+    :param from_gll_order: The gll order of the original mesh, defaults to 2
+    :type from_gll_order: int, optional
+    """
+    coeffs = np.zeros(shape=original_mesh.nodes_per_element)
+    nodes = original_mesh.get_element_nodes()[original_mask]
+    new_values = np.empty(shape=(new_coordinates.shape[0], len(parameters)))
+    for _i, coord in tqdm(enumerate(new_coordinates)):
+        element, ref_coord = _check_if_inside_element(
+            gll_model=nodes,
+            nearest_elements=nearest_elements[_i],
+            point=coord,
+            dimension=dimensions,
+            ignore_hard_elements=True,
+        )
+        coeffs = get_coefficients(
+            a=from_gll_order,
+            b=from_gll_order,
+            c=from_gll_order,
+            ref_coord=ref_coord,
+            dimension=dimensions,
+        )
+        for _k, param in enumerate(parameters):
+            new_values[_i, _k] = np.sum(
+                original_mesh.element_nodal_fields[param][original_mask][
+                    element
+                ]
+                * coeffs
+            )
+    return new_values
 
 
 def find_gll_coeffs(

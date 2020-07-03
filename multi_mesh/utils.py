@@ -272,6 +272,7 @@ def _create_dataset(
         print(f"Element: {element.shape}")
         print(f"rmesh: {r_mesh.shape}")
         print(f"u_mesh: {u_mesh.ravel().shape}")
+
         ds = xr.Dataset(
             dat,
             coords={
@@ -356,7 +357,7 @@ def _assess_layers(
             raise ValueError("Requested layers not in mesh")
         if np.min(layers) < np.min(mesh_layers):
             raise ValueError("Requested layers not in mesh")
-        if set(int(mesh_layers)) == set(int(layers)):
+        if set(mesh_layers) == set(layers):
             mask = False
         else:
             mask = True
@@ -393,16 +394,43 @@ def _assess_layers(
             )
 
 
-def get_unique_points(points: Union[np.array, str], mesh=False, layers=None):
+def create_layer_mask(
+    mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
+    layers: Union[List[int], "str"],
+):
+    """
+    Create a masking array for the layers that need to be masked away from a mesh
+
+    :param mesh: Mesh to mask elements away from
+    :type mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh
+    :param layers: Layers to use
+    :type layers: Union[List[int],
+    """
+    layers, i_should_mask = _assess_layers(mesh=mesh, layers=layers)
+    if i_should_mask:
+        mask = _create_mask(mesh=mesh, layers=layers)
+    else:
+        mask = np.ones_like(mesh.elemental_fields["layer"], dtype=bool)
+    return mask
+
+
+def get_unique_points(
+    points: Union[
+        np.array, str, salvus.mesh.unstructured_mesh.UnstructuredMesh
+    ],
+    mesh=False,
+    layers=None,
+):
     """
     Take an array of coordinates and find the unique coordinates. Returns
     the unique coordinates and an array of indices that can be used to
     reconstruct the previous array.
     
     :param points: Coordinates, or a file
-    :type points: Union[numpy.array, str]
+    :type points: Union[numpy.array, str,
+        salvus.mesh.unstructured_mesh.UnstructuredMesh]
     :param mesh: If you want to take points straight from a mesh,
-        then points are a file
+        then points are a UnstructuredMesh object
     :type mesh: bool
     :param layers: If points are restricted to specific layers.
     :type layers: Union[List[int], str]
@@ -413,24 +441,21 @@ def get_unique_points(points: Union[np.array, str], mesh=False, layers=None):
         )
         return np.unique(all_points, return_inverse=True, axis=0)
     else:
-        from salvus.mesh.unstructured_mesh import UnstructuredMesh
-
         # First we deal with the input variables, especially the layers
-        mesh = UnstructuredMesh.from_h5(points)
-        layers, i_should_mask = _assess_layers(mesh=mesh, layers=layers)
+        layers, i_should_mask = _assess_layers(mesh=points, layers=layers)
         if i_should_mask:
-            mask = _create_mask(mesh=mesh, layers=layers)
+            mask = _create_mask(mesh=points, layers=layers)
         else:
-            mask = np.ones_like(mesh.elemental_fields["layers"], dtype=bool)
-        points = mesh.get_element_nodes()[mask]
-        points = points.reshape(
-            (points.shape[0] * points.shape[1], points.shape[2])
+            mask = np.ones_like(points.elemental_fields["layer"], dtype=bool)
+        coords = points.get_element_nodes()[mask]
+        coords = coords.reshape(
+            (coords.shape[0] * coords.shape[1], coords.shape[2])
         )
         r_mesh_1d = (
-            mesh.element_nodal_fields["z_node_1D"][mask].ravel() * 6371000.0
+            points.element_nodal_fields["z_node_1D"][mask].ravel() * 6371000.0
         )
         return (
-            np.unique(points, return_index=True, return_inverse=True, axis=0),
+            np.unique(coords, return_index=True, return_inverse=True, axis=0),
             mask,
             r_mesh_1d,
         )
