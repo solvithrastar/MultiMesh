@@ -470,7 +470,7 @@ def gll_2_gll_layered(
     # I should try the tri-linear interpolation here too.
     # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
     nearest_element_indices = np.zeros(
-        shape=[unique_new_points, nelem_to_search], dtype=np.int
+        shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int
     )
     _, nearest_element_indices[:, :] = original_tree.query(
         unique_new_points[:, :], k=nelem_to_search
@@ -481,7 +481,7 @@ def gll_2_gll_layered(
     parameters = ["VSV", "VSH", "VPV", "VPH"]
 
     # Time consuming part
-    new_values = fill_value_array(
+    coeffs, elements = fill_value_array(
         new_coordinates=unique_new_points,
         nearest_elements=nearest_element_indices,
         original_mesh=original_mesh,
@@ -490,9 +490,22 @@ def gll_2_gll_layered(
         dimensions=dimensions,
         from_gll_order=original_gll_order,
     )
-    new_values = new_values[recon]
-    for _i, param in enumerate(parameters):
-        new_mesh.element_nodal_fields[param][mask] = new_values[_i]
+    elements = elements.astype(int)
+    for param in parameters:
+        values = np.sum(
+            original_mesh.element_nodal_fields[param][original_mask][elements]
+            * coeffs,
+            axis=1,
+        )
+        print(f"Values: {values.shape}")
+        print(f"Coeffs: {coeffs.shape}")
+        print(
+            f"Stuff: {original_mesh.element_nodal_fields[param][original_mask][elements].shape}"
+        )
+        new_mesh.element_nodal_fields[param][mask] = values[recon].reshape(
+            new_mesh.element_nodal_fields[param][mask].shape
+        )
+
     new_mesh.write_h5("test.h5")
 
 
@@ -843,7 +856,7 @@ def _check_if_inside_element(
             if np.any(np.isnan(ref_coord)):
                 continue
 
-            if np.all(np.abs(ref_coord) <= 1.02):
+            if np.all(np.abs(ref_coord) <= 1.00):
                 return element, ref_coord
     if not ignore_hard_elements:
         warnings.warn(
@@ -879,6 +892,10 @@ def _check_if_inside_element(
     return element, ref_coord
 
 
+# from numba import jit
+
+
+# @jit(nopython=True, parallel=True)
 def fill_value_array(
     # original_coordinates: np.ndarray,
     new_coordinates: np.ndarray,
@@ -917,32 +934,36 @@ def fill_value_array(
     :param from_gll_order: The gll order of the original mesh, defaults to 2
     :type from_gll_order: int, optional
     """
-    coeffs = np.zeros(shape=original_mesh.nodes_per_element)
+    coeffs = np.zeros(
+        shape=(new_coordinates.shape[0], original_mesh.nodes_per_element)
+    )
+    element = np.empty(new_coordinates.shape[0], dtype=int)
     nodes = original_mesh.get_element_nodes()[original_mask]
-    new_values = np.empty(shape=(new_coordinates.shape[0], len(parameters)))
-    for _i, coord in tqdm(enumerate(new_coordinates)):
-        element, ref_coord = _check_if_inside_element(
+    for _i, coord in tqdm(
+        enumerate(new_coordinates), total=new_coordinates.shape[0]
+    ):
+        element[_i], ref_coord = _check_if_inside_element(
             gll_model=nodes,
             nearest_elements=nearest_elements[_i],
             point=coord,
             dimension=dimensions,
             ignore_hard_elements=True,
         )
-        coeffs = get_coefficients(
+        coeffs[_i] = get_coefficients(
             a=from_gll_order,
             b=from_gll_order,
             c=from_gll_order,
             ref_coord=ref_coord,
             dimension=dimensions,
         )
-        for _k, param in enumerate(parameters):
-            new_values[_i, _k] = np.sum(
-                original_mesh.element_nodal_fields[param][original_mask][
-                    element
-                ]
-                * coeffs
-            )
-    return new_values
+        # for _k, param in enumerate(parameters):
+        #     new_values[_i, _k] = np.sum(
+        #         original_mesh.element_nodal_fields[param][original_mask][
+        #             element
+        #         ]
+        #         * coeffs
+        #     )
+    return coeffs, element
 
 
 def find_gll_coeffs(
@@ -1000,3 +1021,4 @@ def find_gll_coeffs(
         #     print(ref_coord.type)
 
     return element, coeffs
+
