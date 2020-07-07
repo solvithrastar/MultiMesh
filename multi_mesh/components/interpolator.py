@@ -444,40 +444,62 @@ def gll_2_gll_layered(
     """
     from salvus.mesh.unstructured_mesh import UnstructuredMesh
 
+    # Now I want to do this in a more structured layered approach. I only interpolate
+    # from the relevant layer to the relevant layer.
+    # This needs a bit of thinking but it's doable
     print("Initialization stage")
     print(f"Stored array: {stored_array}")
     original_mesh = UnstructuredMesh.from_h5(from_gll)
-    original_mask = utils.create_layer_mask(mesh=original_mesh, layers=layers)
-    original_points = original_mesh.get_element_nodes()[original_mask]
+    original_mask, layers = utils.create_layer_mask(
+        mesh=original_mesh, layers=layers
+    )
+    # original_points = original_mesh.get_element_nodes()[original_mask]
 
-    dimensions = original_points.shape[2]
-    original_gll_order = (
-        int(round(original_mesh.nodes_per_element ** (1.0 / dimensions))) - 1
-    )
-    original_tree = KDTree(
-        original_points.reshape(
-            original_points.shape[0] * original_points.shape[1], dimensions
-        )
-    )
+    # dimensions = original_points.shape[2]
+    dimensions = 3
+    # original_gll_order = (
+    #     int(round(original_mesh.nodes_per_element ** (1.0 / dimensions))) - 1
+    # )
+
     new_mesh = UnstructuredMesh.from_h5(to_gll)
     # Stored array stuff here
 
-    unique_new_points, mask, _ = utils.get_unique_points(
+    # Unique new points is a dictionary with tuples of coordinates and a
+    # reconstruction array
+    unique_new_points, mask, layers = utils.get_unique_points(
         points=new_mesh, mesh=True, layers=layers
     )
-    recon = unique_new_points[2].copy()
-    unique_new_points = unique_new_points[0]
-    # I should try the tri-linear interpolation here too.
+    # recon = unique_new_points[2].copy()
+    # unique_new_points = unique_new_points[0]
+
+    original_trees = {}
+    nearest_element_indices = {}
+    # Making a dictionary of KDTrees, one per layer
+    # Now we do it based on element centroids
+    for layer in layers:
+        layer = str(layer)
+        points = original_mesh.get_element_centroid()[original_mask[layer]]
+        original_trees[layer] = KDTree(points)
+        nearest_element_indices[layer] = np.zeros(
+            shape=(unique_new_points[layer][0].shape[0], nelem_to_search),
+            dtype=np.int,
+        )
+        _, nearest_element_indices[layer][:, :] = original_trees[layer].query(
+            unique_new_points[layer][0], k=nelem_to_search
+        )
+
+    # I should try the tri-linear interpolation here too. But then I KDTree to the gll points.
     # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
-    nearest_element_indices = np.zeros(
-        shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int
-    )
-    _, nearest_element_indices[:, :] = original_tree.query(
-        unique_new_points[:, :], k=nelem_to_search
-    )
-    nearest_element_indices = np.floor(
-        nearest_element_indices / original_mesh.nodes_per_element
-    ).astype(int)
+
+    # nearest_element_indices = np.zeros(
+    #     shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int
+    # )
+    # _, nearest_element_indices[:, :] = original_tree.query(
+    #     unique_new_points[:, :], k=nelem_to_search
+    # )
+    # nearest_element_indices = np.floor(
+    #     nearest_element_indices / original_mesh.nodes_per_element
+    # ).astype(int)
     parameters = ["VSV", "VSH", "VPV", "VPH"]
 
     # Time consuming part
@@ -488,25 +510,33 @@ def gll_2_gll_layered(
         original_mask=original_mask,
         parameters=parameters,
         dimensions=dimensions,
-        from_gll_order=original_gll_order,
+        from_gll_order=2,
     )
-    elements = elements.astype(int)
-    for param in parameters:
-        values = np.sum(
-            original_mesh.element_nodal_fields[param][original_mask][elements]
-            * coeffs,
-            axis=1,
-        )
-        print(f"Values: {values.shape}")
-        print(f"Coeffs: {coeffs.shape}")
-        print(
-            f"Stuff: {original_mesh.element_nodal_fields[param][original_mask][elements].shape}"
-        )
-        new_mesh.element_nodal_fields[param][mask] = values[recon].reshape(
-            new_mesh.element_nodal_fields[param][mask].shape
-        )
+    for layer in coeffs.keys():
+        elms = elements[layer].astype(int)
+        for param in parameters:
+            values = np.sum(
+                original_mesh.element_nodal_fields[param][
+                    original_mask[layer]
+                ][elms]
+                * coeffs[layer],
+                axis=1,
+            )
+            new_mesh.element_nodal_fields[param][mask[layer]] = values[
+                unique_new_points[layer][1]
+            ].reshape(new_mesh.element_nodal_fields[param][mask[layer]].shape)
 
-    new_mesh.write_h5("test.h5")
+    # for param in parameters:
+    #     values = np.sum(
+    #         original_mesh.element_nodal_fields[param][original_mask][elements]
+    #         * coeffs,
+    #         axis=1,
+    #     )
+    #     new_mesh.element_nodal_fields[param][mask] = values[recon].reshape(
+    #         new_mesh.element_nodal_fields[param][mask].shape
+    #     )
+
+    new_mesh.write_h5(to_gll)
 
 
 def gll_2_gll(
@@ -856,7 +886,7 @@ def _check_if_inside_element(
             if np.any(np.isnan(ref_coord)):
                 continue
 
-            if np.all(np.abs(ref_coord) <= 1.00):
+            if np.all(np.abs(ref_coord) <= 1.02):
                 return element, ref_coord
     if not ignore_hard_elements:
         warnings.warn(
@@ -898,10 +928,10 @@ def _check_if_inside_element(
 # @jit(nopython=True, parallel=True)
 def fill_value_array(
     # original_coordinates: np.ndarray,
-    new_coordinates: np.ndarray,
-    nearest_elements: np.ndarray,
+    new_coordinates: Dict[str, np.ndarray],
+    nearest_elements: Dict[str, np.ndarray],
     original_mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
-    original_mask: np.ndarray,
+    original_mask: Dict[str, np.ndarray],
     parameters: List[str],
     # new_values: np.ndarray,
     dimensions: int = 3,
@@ -934,28 +964,33 @@ def fill_value_array(
     :param from_gll_order: The gll order of the original mesh, defaults to 2
     :type from_gll_order: int, optional
     """
-    coeffs = np.zeros(
-        shape=(new_coordinates.shape[0], original_mesh.nodes_per_element)
-    )
-    element = np.empty(new_coordinates.shape[0], dtype=int)
-    nodes = original_mesh.get_element_nodes()[original_mask]
-    for _i, coord in tqdm(
-        enumerate(new_coordinates), total=new_coordinates.shape[0]
-    ):
-        element[_i], ref_coord = _check_if_inside_element(
-            gll_model=nodes,
-            nearest_elements=nearest_elements[_i],
-            point=coord,
-            dimension=dimensions,
-            ignore_hard_elements=True,
+
+    element = {}
+    coeffs = {}
+
+    # nodes = original_mesh.get_element_nodes()[original_mask]
+    for key, val in new_coordinates.items():
+        print(f"Interpolating layer: {key}")
+        coeffs[key] = np.zeros(
+            shape=(val[0].shape[0], original_mesh.nodes_per_element)
         )
-        coeffs[_i] = get_coefficients(
-            a=from_gll_order,
-            b=from_gll_order,
-            c=from_gll_order,
-            ref_coord=ref_coord,
-            dimension=dimensions,
-        )
+        element[key] = np.empty(val[0].shape[0], dtype=int)
+        nodes = original_mesh.get_element_nodes()[original_mask[key]]
+        for _i, coord in tqdm(enumerate(val[0]), total=val[0].shape[0]):
+            element[key][_i], ref_coord = _check_if_inside_element(
+                gll_model=nodes,
+                nearest_elements=nearest_elements[key][_i],
+                point=coord,
+                dimension=dimensions,
+                ignore_hard_elements=True,
+            )
+            coeffs[key][_i] = get_coefficients(
+                a=from_gll_order,
+                b=from_gll_order,
+                c=from_gll_order,
+                ref_coord=ref_coord,
+                dimension=dimensions,
+            )
         # for _k, param in enumerate(parameters):
         #     new_values[_i, _k] = np.sum(
         #         original_mesh.element_nodal_fields[param][original_mask][

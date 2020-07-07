@@ -330,10 +330,16 @@ def _create_mask(
     :rtype: np.ndarray
     """
     # We create a boolean array to represent the mask
-    mask = np.zeros_like(mesh.elemental_fields["layer"], dtype=bool)
+    mask = {}
     for layer in layers:
-        mask = np.logical_or(mask, mesh.elemental_fields["layer"] == layer)
-    return mask
+        le_mask = np.zeros_like(mesh.elemental_fields["layer"], dtype=bool)
+        mask[str(layer)] = np.logical_or(
+            le_mask, mesh.elemental_fields["layer"] == layer
+        )
+    # mask = np.zeros_like(mesh.elemental_fields["layer"], dtype=bool)
+    # for layer in layers:
+    #     mask = np.logical_or(mask, mesh.elemental_fields["layer"] == layer)
+    return mask, layers
 
 
 def _assess_layers(
@@ -349,10 +355,12 @@ def _assess_layers(
     :type layers: Union[List[int], str]
     """
     # We sort layers in descending order in order to make moho_idx make sense
-    mesh_layers = np.sort(np.unique(mesh.elemental_fields["layer"]))[::-1]
+    mesh_layers = np.sort(np.unique(mesh.elemental_fields["layer"]))[
+        ::-1
+    ].astype(int)
 
     # If requested layers are a list, we just check validity of list and return
-    if isinstance(layers, list):
+    if isinstance(layers, (list, np.ndarray)):
         if np.max(layers) > np.max(mesh_layers):
             raise ValueError("Requested layers not in mesh")
         if np.min(layers) < np.min(mesh_layers):
@@ -362,14 +370,17 @@ def _assess_layers(
         else:
             mask = True
         return layers, mask
-
+    if isinstance(layers, int):
+        if layers not in mesh_layers:
+            raise ValueError("Requested layer not in mesh")
+        return [layers], True
     # Else, we have to figure stuff out
+    available_layers = ["all", "crust", "mantle", "core", "nocore"]
     if not isinstance(layers, str):
         raise ValueError(
             f"Input for layers needs to be a list of one of: "
             f"{available_layers}"
         )
-    available_layers = ["all", "crust", "mantle", "core", "nocore"]
     # The layers are arranged outwards from the core
     moho_idx = int(mesh.global_strings["moho_idx"])
     mask = True
@@ -407,11 +418,13 @@ def create_layer_mask(
     :type layers: Union[List[int],
     """
     layers, i_should_mask = _assess_layers(mesh=mesh, layers=layers)
-    if i_should_mask:
-        mask = _create_mask(mesh=mesh, layers=layers)
-    else:
-        mask = np.ones_like(mesh.elemental_fields["layer"], dtype=bool)
-    return mask
+    return _create_mask(mesh=mesh, layers=layers)
+    # layers, i_should_mask = _assess_layers(mesh=mesh, layers=layers)
+    # if i_should_mask:
+    #     mask = _create_mask(mesh=mesh, layers=layers)
+    # else:
+    #     mask = np.ones_like(mesh.elemental_fields["layer"], dtype=bool)
+    # return mask
 
 
 def get_unique_points(
@@ -442,22 +455,32 @@ def get_unique_points(
         return np.unique(all_points, return_inverse=True, axis=0)
     else:
         # First we deal with the input variables, especially the layers
-        layers, i_should_mask = _assess_layers(mesh=points, layers=layers)
-        if i_should_mask:
-            mask = _create_mask(mesh=points, layers=layers)
-        else:
-            mask = np.ones_like(points.elemental_fields["layer"], dtype=bool)
-        coords = points.get_element_nodes()[mask]
-        coords = coords.reshape(
-            (coords.shape[0] * coords.shape[1], coords.shape[2])
-        )
-        r_mesh_1d = (
-            points.element_nodal_fields["z_node_1D"][mask].ravel() * 6371000.0
-        )
+        layers, _ = _assess_layers(mesh=points, layers=layers)
+        # if i_should_mask:
+        mask, _ = _create_mask(mesh=points, layers=layers)
+        # else:
+        #     mask = np.ones_like(points.elemental_fields["layer"], dtype=bool)
+        # coords = points.get_element_nodes()
+        # coords = coords.reshape(
+        #     (coords.shape[0] * coords.shape[1], coords.shape[2])
+        # )
+        # r_mesh_1d = (
+        #     points.element_nodal_fields["z_node_1D"][mask].ravel() * 6371000.0
+        # )
+        unique_points = {}
+        for layer in layers:
+            nodes = points.get_element_nodes()[mask[str(layer)]]
+            unique_points[str(layer)] = np.unique(
+                nodes.reshape(
+                    (nodes.shape[0] * nodes.shape[1], nodes.shape[2])
+                ),
+                return_inverse=True,
+                axis=0,
+            )
         return (
-            np.unique(coords, return_index=True, return_inverse=True, axis=0),
+            unique_points,
             mask,
-            r_mesh_1d,
+            layers,
         )
 
 
