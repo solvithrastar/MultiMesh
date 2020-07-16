@@ -191,6 +191,31 @@ def gll_2_gll(
         print(f"Finished in time: {runtime} seconds")
 
 
+def gll_2_gll_layered(
+    from_gll, to_gll, layers="nocore", parameters="all", stored_array=None,
+):
+
+    start = time.time()
+    from multi_mesh.components.interpolator import gll_2_gll_layered
+
+    gll_2_gll_layered(
+        from_gll=from_gll,
+        to_gll=to_gll,
+        layers=layers,
+        parameters=parameters,
+        stored_array=stored_array,
+    )
+
+    end = time.time()
+    runtime = end - start
+
+    if runtime >= 60:
+        runtime = runtime / 60
+        print(f"Finished in time: {runtime} minutes")
+    else:
+        print(f"Finished in time: {runtime} seconds")
+
+
 # Will keep this function for now, while not really knowing the terminology in Salvus
 def gll_2_gll_gradients(simulation, master, first=True):
     """
