@@ -295,128 +295,12 @@ def gll_2_exodus(
         i += 1
 
 
-def gll_2_gll_rectsphere(
-    from_gll, to_gll, layers="nocore", parameters=["all"], stored_array=None,
-):
-    from scipy.interpolate import RectSphereBivariateSpline
-    from salvus.mesh.unstructured_mesh import UnstructuredMesh
-
-    # I would like to implement a layer by layer option
-    print("Create Xarray datasets")
-    orig_data = utils.create_dataset(
-        file=from_gll,
-        layers=layers,
-        parameters=parameters,
-        coords="spherical",
-    )
-    orig_data = orig_data.sortby(
-        ["radius", "colatitude", "longitude"], ascending=True
-    )
-    lp90 = np.where(orig_data["colatitude"] == 0.0)[0]
-    ln90 = np.where(orig_data["colatitude"] == np.pi)[0]
-    if not len(lp90) == 0:
-        orig_data["colatitude"][lp90[0]] += 1e-6
-    if not len(ln90) == 0:
-        orig_data["colatitude"][ln90[0]] -= 1e-6
-
-    # Setup interpolating objects
-
-    n_rads = len(orig_data.coords["radius"])
-    r_vals = np.empty((n_rads))
-    r_interps: Dict[str, List[RectSphereBivariateSpline]] = defaultdict(list)
-
-    for i in range(n_rads):
-        sl = orig_data.isel(radius=i)
-        r_vals[i] = sl.radius
-        sl = sl.sortby(["colatitude", "longitude"], ascending=True)
-
-        for key, val in sl.items():
-            final_data = val.data.copy()
-            r_interps[key.upper()].append(
-                RectSphereBivariateSpline(
-                    u=sl.colatitude, v=sl.longitude, r=final_data, s=0
-                )
-            )
-
-    # Now we look at the points of the new mesh
-    (
-        new_points,
-        indices,
-        reconstruct,
-        mask_layer,
-        r_mesh_1d,
-    ) = utils.get_unique_points(points=to_gll, mesh=True, layers=layers)
-    x = np.square(new_points[:, 0]) + np.square(new_points[:, 1])
-    # r_mesh = np.sqrt(x + np.square(new_points[:, 2]))
-    col_mesh = np.arctan2(np.sqrt(x), new_points[:, 2])
-    lon_mesh = np.arctan2(new_points[:, 1], new_points[:, 2])
-    mesh = UnstructuredMesh.from_h5(to_gll)
-
-    # Might have to make sure v is from 0->360 Think arctan2 takes care of it
-    # though
-    for _i in range(len(r_vals) - 1):
-
-        # Get region
-        r0, r1 = r_vals[_i], r_vals[_i + 1]
-        u0, u1 = orig_data.colatitude.min(), orig_data.colatitude.max()
-        v0, v1 = orig_data.longitude.min(), orig_data.longitude.max()
-        if _i + 1 == len(r_vals) - 1:
-            r1 = np.max(r_mesh_1d)
-
-        eps = 1e-6
-        if not globe:
-            mask_colat = np.logical_and(col_mesh >= u0, col_mesh <= u1)
-            mask_lon = np.logical_and(lon_mesh >= v0, lon_mesh <= v1)
-            mask_r = np.logical_and(
-                r_mesh_1d >= r0 - eps, r_mesh_1d <= r1 + eps
-            )
-            mask = np.logical_and(np.logical_and(mask_r, mask_colat), mask_lon)
-        else:
-            mask = np.logical_and(r_mesh_1d >= r0 - eps, r_mesh_1d <= r1 + eps)
-
-        r_chunk, col_chunk, lon_chunk = (
-            r_mesh_1d[mask],
-            col_mesh[mask],
-            lon_mesh[mask],
-        )
-        r_perc = (r_chunk - r0) / (r1 - r0)
-        # Possible tapering here
-        t_val = 1
-
-        for key, val in r_interps.items():
-            # Interpolate linearly in radius
-            # Interpolate using RectSphereBivariateSpline in latlon
-            val0 = val[_i + 0](
-                col_chunk, np.clip(lon_chunk, 0, 2 * np.pi), grid=False
-            )
-            val1 = val[_i + 1](
-                col_chunk, np.clip(lon_chunk, 0, 2 * np.pi), grid=False
-            )
-            p_val = r_perc * val1 + (1 - r_perc) * val0
-
-            # Here we need to reconstruct the whole array in order to make it work correctly
-            # We need the chunk_mask, we need the reconstruct and we need the layer_mask.
-            field = mesh.element_nodal_fields[key][mask_layer].ravel()[indices]
-            assert p_val.shape == field[mask].shape
-            field[mask] = p_val * t_val
-            field = field[reconstruct].reshape(
-                mesh.element_nodal_fields[key][mask_layer].shape
-            )
-            mesh.element_nodal_fields[key][mask_layer] = field
-
-    mesh.write_h5("test.h5")
-
-
 def gll_2_gll_layered(
     from_gll,
     to_gll,
     layers,
     nelem_to_search=20,
     parameters="ISO",
-    from_model_path="MODEL/data",
-    to_model_path="MODEL/data",
-    from_coordinates_path="MODEL/coordinates",
-    to_coordinates_path="MODEL/coordinates",
     gradient=False,
     stored_array=None,
 ):
@@ -453,13 +337,11 @@ def gll_2_gll_layered(
     original_mask, layers = utils.create_layer_mask(
         mesh=original_mesh, layers=layers
     )
+    if parameters == "all":
+        parameters = list(original_mesh.element_nodal_fields.keys())
     # original_points = original_mesh.get_element_nodes()[original_mask]
 
-    # dimensions = original_points.shape[2]
     dimensions = 3
-    # original_gll_order = (
-    #     int(round(original_mesh.nodes_per_element ** (1.0 / dimensions))) - 1
-    # )
 
     new_mesh = UnstructuredMesh.from_h5(to_gll)
     # Stored array stuff here
@@ -469,8 +351,6 @@ def gll_2_gll_layered(
     unique_new_points, mask, layers = utils.get_unique_points(
         points=new_mesh, mesh=True, layers=layers
     )
-    # recon = unique_new_points[2].copy()
-    # unique_new_points = unique_new_points[0]
 
     original_trees = {}
     nearest_element_indices = {}
@@ -491,16 +371,7 @@ def gll_2_gll_layered(
     # I should try the tri-linear interpolation here too. But then I KDTree to the gll points.
     # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
 
-    # nearest_element_indices = np.zeros(
-    #     shape=[unique_new_points.shape[0], nelem_to_search], dtype=np.int
-    # )
-    # _, nearest_element_indices[:, :] = original_tree.query(
-    #     unique_new_points[:, :], k=nelem_to_search
-    # )
-    # nearest_element_indices = np.floor(
-    #     nearest_element_indices / original_mesh.nodes_per_element
-    # ).astype(int)
-    parameters = ["VSV", "VSH", "VPV", "VPH"]
+    parameters = utils.pick_parameters(parameters)
 
     # Time consuming part
     coeffs, elements = fill_value_array(
@@ -927,13 +798,11 @@ def _check_if_inside_element(
 
 # @jit(nopython=True, parallel=True)
 def fill_value_array(
-    # original_coordinates: np.ndarray,
     new_coordinates: Dict[str, np.ndarray],
     nearest_elements: Dict[str, np.ndarray],
     original_mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
     original_mask: Dict[str, np.ndarray],
     parameters: List[str],
-    # new_values: np.ndarray,
     dimensions: int = 3,
     from_gll_order: int = 2,
 ):
@@ -991,13 +860,6 @@ def fill_value_array(
                 ref_coord=ref_coord,
                 dimension=dimensions,
             )
-        # for _k, param in enumerate(parameters):
-        #     new_values[_i, _k] = np.sum(
-        #         original_mesh.element_nodal_fields[param][original_mask][
-        #             element
-        #         ]
-        #         * coeffs
-        #     )
     return coeffs, element
 
 

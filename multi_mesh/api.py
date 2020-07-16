@@ -191,14 +191,14 @@ def gll_2_gll(
         print(f"Finished in time: {runtime} seconds")
 
 
-def gll_2_gll_rectsphere(
-    from_gll, to_gll, layers="nocore", parameters=["all"], stored_array=None,
+def gll_2_gll_layered(
+    from_gll, to_gll, layers="nocore", parameters="all", stored_array=None,
 ):
 
     start = time.time()
-    from multi_mesh.components.interpolator import gll_2_gll_rectsphere
+    from multi_mesh.components.interpolator import gll_2_gll_layered
 
-    gll_2_gll_rectsphere(
+    gll_2_gll_layered(
         from_gll=from_gll,
         to_gll=to_gll,
         layers=layers,
