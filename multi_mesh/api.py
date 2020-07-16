@@ -192,7 +192,12 @@ def gll_2_gll(
 
 
 def gll_2_gll_layered(
-    from_gll, to_gll, layers="nocore", parameters="all", stored_array=None,
+    from_gll,
+    to_gll,
+    layers="nocore",
+    nelem_to_search=20,
+    parameters="all",
+    stored_array=None,
 ):
 
     start = time.time()
@@ -203,6 +208,7 @@ def gll_2_gll_layered(
         to_gll=to_gll,
         layers=layers,
         parameters=parameters,
+        nelem_to_search=nelem_to_search,
         stored_array=stored_array,
     )
 
