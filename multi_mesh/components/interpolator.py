@@ -372,7 +372,7 @@ def gll_2_gll_layered(
     # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
 
     parameters = utils.pick_parameters(parameters)
-
+    from_gll_order = original_mesh.shape_order
     # Time consuming part
     coeffs, elements = fill_value_array(
         new_coordinates=unique_new_points,
@@ -381,7 +381,7 @@ def gll_2_gll_layered(
         original_mask=original_mask,
         parameters=parameters,
         dimensions=dimensions,
-        from_gll_order=2,
+        from_gll_order=from_gll_order,
     )
     for layer in coeffs.keys():
         elms = elements[layer].astype(int)
