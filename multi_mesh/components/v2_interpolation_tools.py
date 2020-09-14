@@ -79,7 +79,7 @@ def get_element_weights(gll_points, centroid_tree, points):
     :return: the enclosing elements and interpolation weights
     """
     global _get_coeffs
-    nelem_to_search = 20
+    nelem_to_search = 25
 
     def _get_coeffs(point_indices):
         _, nearest_elements = centroid_tree.query(points[point_indices],
@@ -102,7 +102,10 @@ def get_element_weights(gll_points, centroid_tree, points):
                     point, gll_points=gll_points_elem, dimension=3)
 
                 # tolerance of 3%
-                if np.all(np.abs(ref_coord) < 1.03):
+                if np.any(np.isnan(ref_coord)):
+                    continue
+
+                if np.all(np.abs(ref_coord) < 1.05):
                     coeffs = get_coefficients(2, 0, 0,
                                               np.asfortranarray(
                                                   ref_coord, dtype=np.float64),
@@ -207,5 +210,6 @@ def interpolate_to_mesh(
         new_element_nodal_vals = vals[:, i][new_mesh.connectivity]
         new_mesh.element_nodal_fields[param][:] = new_element_nodal_vals
 
+    # Restore original coordinates
     old_mesh.points = orig_old_elliptic_mesh_points
     new_mesh.points = orig_new_elliptic_mesh_points
