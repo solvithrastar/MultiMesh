@@ -139,7 +139,8 @@ def get_element_weights(gll_points, centroid_tree, points):
     return elems, coeffs
 
 
-def interpolate_to_points(mesh, points, params_to_interp):
+def interpolate_to_points(mesh, points, params_to_interp,
+                          make_spherical=False):
     """
     Interpolates from a mesh to point cloud.
 
@@ -147,8 +148,12 @@ def interpolate_to_points(mesh, points, params_to_interp):
     :param points: np.array of points that require interpolation,
     if they are not found. zero is returned
     :param params_to_interp: list of params to interp
+    :param make_spherical: bool that determines if mesh gets mapped to a sphere.
     :return: array[nparams_to_interp, npoints]
     """
+
+    if make_spherical:
+        map_to_sphere(mesh)
 
     elem_centroid = mesh.get_element_centroid()
     print("Initializing KDtree...")
