@@ -2,7 +2,7 @@ import multiprocessing
 import numpy as np
 from multi_mesh.api import inverse_transform
 from multi_mesh.api import get_coefficients
-from scipy.spatial import cKDTree
+from pykdtree.kdtree import KDTree
 from tqdm import tqdm
 
 
@@ -27,8 +27,8 @@ def map_to_ellipse(base_mesh, mesh):
     map_to_sphere(mesh)
 
     # For each point in new mesh find nearest elements centroids in old mesh
-    elem_centroid = base_mesh.get_element_centroid(spherical=False)
-    centroid_tree = cKDTree(elem_centroid, balanced_tree=False)
+    elem_centroid = base_mesh.get_element_centroid()
+    centroid_tree = KDTree(elem_centroid)
     gll_points = base_mesh.points[base_mesh.connectivity]
 
     # Get elements and interpolation coefficients for new_points
@@ -101,10 +101,11 @@ def get_element_weights(gll_points, centroid_tree, points):
                 ref_coord = inverse_transform(
                     point, gll_points=gll_points_elem, dimension=3)
 
-                if not np.any(np.abs(ref_coord) > 1.01):
+                # tolerance of 3%
+                if np.all(np.abs(ref_coord) < 1.03):
                     coeffs = get_coefficients(2, 0, 0,
-                                              np.asfortranarray(ref_coord,
-                                                                dtype=np.float64),
+                                              np.asfortranarray(
+                                                  ref_coord, dtype=np.float64),
                                               3)
                     return element, coeffs
             # return weights zero if nothing found
@@ -138,31 +139,28 @@ def get_element_weights(gll_points, centroid_tree, points):
     return elems, coeffs
 
 
-def interpolate_to_mesh(old_mesh, new_mesh, params_to_interp=["VSV"]):
+def interpolate_to_points(mesh, points, params_to_interp):
     """
-    Interpolate values from old mesh to new mesh for params to interp
+    Interpolates from a mesh to point cloud.
 
-    Values that are not found are given zero
+    :param mesh: Mesh from which you want to interpolate
+    :param points: np.array of points that require interpolation,
+    if they are not found. zero is returned
+    :param params_to_interp: list of params to interp
+    :return: array[nparams_to_interp, npoints]
     """
 
-    # store orignal point locations
-    orig_old_elliptic_mesh_points = np.copy(old_mesh.points)
-    orig_new_elliptic_mesh_points = np.copy(new_mesh.points)
-    # Map both meshes to a sphere
-    map_to_sphere(old_mesh)
-    map_to_sphere(new_mesh)
-    # For each point in new mesh find nearest elements centroids in old mesh
-    elem_centroid = old_mesh.get_element_centroid(spherical=False)
+    elem_centroid = mesh.get_element_centroid()
     print("Initializing KDtree...")
-    centroid_tree = cKDTree(elem_centroid, balanced_tree=False)
+    centroid_tree = KDTree(elem_centroid)
 
     # Get GLL points from old mesh
-    gll_points = old_mesh.points[old_mesh.connectivity]
+    gll_points = mesh.points[mesh.connectivity]
 
     # Get elements and interpolation coefficients for new_points
     print("Retrieving interpolation weigts")
     elem_indices, coeffs = get_element_weights(gll_points, centroid_tree,
-                                               new_mesh.points)
+                                               points)
 
     num_failed = len(np.where(elem_indices == -1)[0])
     if num_failed > 0:
@@ -172,11 +170,36 @@ def interpolate_to_mesh(old_mesh, new_mesh, params_to_interp=["VSV"]):
               "Please check your domain or the interpolation tuning parameters")
 
     print("Interpolating fields...")
-    for param in params_to_interp:
-        old_element_nodal_vals = old_mesh.element_nodal_fields[param]
-        new_point_values = np.sum(coeffs * old_element_nodal_vals[elem_indices],
-                                  axis=1)
-        new_element_nodal_vals = new_point_values[new_mesh.connectivity]
+    vals = np.zeros((len(points), len(params_to_interp)))
+    for i, param in enumerate(params_to_interp):
+        old_element_nodal_vals = mesh.element_nodal_fields[param]
+        vals[:, i] = np.sum(coeffs * old_element_nodal_vals[elem_indices],
+                            axis=1)
+    return vals
+
+
+def interpolate_to_mesh(
+        old_mesh,
+        new_mesh,
+        params_to_interp=["VSV", "VSH", "VPV", "VPH"]):
+    """
+    Maps both meshes to a sphere and interpolate values
+    from old mesh to new mesh for params to interp.
+    Returns the original coordinate system
+
+    Values that are not found are given zero
+    """
+    # store original point locations
+    orig_old_elliptic_mesh_points = np.copy(old_mesh.points)
+    orig_new_elliptic_mesh_points = np.copy(new_mesh.points)
+
+    # Map both meshes to a sphere
+    map_to_sphere(old_mesh)
+    map_to_sphere(new_mesh)
+    vals = interpolate_to_points(old_mesh, new_mesh.points, params_to_interp)
+
+    for i, param in enumerate(params_to_interp):
+        new_element_nodal_vals = vals[:, i][new_mesh.connectivity]
         new_mesh.element_nodal_fields[param][:] = new_element_nodal_vals
 
     old_mesh.points = orig_old_elliptic_mesh_points
