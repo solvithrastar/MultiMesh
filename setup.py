@@ -31,7 +31,7 @@ setup(
         "https://github.com/SalvusHub/pyexodus"
         "/archive/master.zip#egg=pyexodus-master"
     ],
-    install_requires=["numpy", "scipy", "click", "h5py", "pyexodus"],
+    install_requires=["numpy", "scipy", "click", "h5py", "pyexodus", "tdqm"],
     platforms="OS Independent",
     classifiers=[
         "Development Status :: 2 - Pre-Alpha",
