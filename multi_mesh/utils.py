@@ -250,7 +250,7 @@ def _create_dataset(
     dat = {}
     for param in parameters:
         dat[param] = (
-            ["radius", "colatitude", "latitude"],
+            ["radius", "colatitude", "longitude"],
             np.array(
                 [
                     mesh.element_nodal_fields[param][mask].ravel(),

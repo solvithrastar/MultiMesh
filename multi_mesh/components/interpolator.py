@@ -345,46 +345,70 @@ def gll_2_gll_layered(
 
     new_mesh = UnstructuredMesh.from_h5(to_gll)
     # Stored array stuff here
+    loop = True
+    if stored_array is not None and os.path.exists(
+        os.path.join(stored_array, "interp_info.h5")
+    ):
+        print("No need for looping, we have the matrices")
+        loop = False
+        dataset = h5py.File(os.path.join(stored_array, "interp_info.h5"), "r")
+        coeffs = dataset["coeffs"]
+        elements = dataset["elements"]
 
     # Unique new points is a dictionary with tuples of coordinates and a
     # reconstruction array
     unique_new_points, mask, layers = utils.get_unique_points(
         points=new_mesh, mesh=True, layers=layers
     )
+    parameters = utils.pick_parameters(parameters)
 
     original_trees = {}
     nearest_element_indices = {}
     # Making a dictionary of KDTrees, one per layer
     # Now we do it based on element centroids
-    for layer in layers:
-        layer = str(layer)
-        points = original_mesh.get_element_centroid()[original_mask[layer]]
-        original_trees[layer] = KDTree(points)
-        nearest_element_indices[layer] = np.zeros(
-            shape=(unique_new_points[layer][0].shape[0], nelem_to_search),
-            dtype=np.int,
-        )
-        _, nearest_element_indices[layer][:, :] = original_trees[layer].query(
-            unique_new_points[layer][0], k=nelem_to_search
-        )
+    if loop:
+        for layer in layers:
+            layer = str(layer)
+            points = original_mesh.get_element_centroid()[original_mask[layer]]
+            original_trees[layer] = KDTree(points)
+            nearest_element_indices[layer] = np.zeros(
+                shape=(unique_new_points[layer][0].shape[0], nelem_to_search),
+                dtype=np.int,
+            )
+            _, nearest_element_indices[layer][:, :] = original_trees[
+                layer
+            ].query(unique_new_points[layer][0], k=nelem_to_search)
 
-    # I should try the tri-linear interpolation here too. But then I KDTree to the gll points.
-    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
+        # I should try the tri-linear interpolation here too. But then I KDTree to the gll points.
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
 
-    parameters = utils.pick_parameters(parameters)
-    from_gll_order = original_mesh.shape_order
-    # Time consuming part
-    coeffs, elements = fill_value_array(
-        new_coordinates=unique_new_points,
-        nearest_elements=nearest_element_indices,
-        original_mesh=original_mesh,
-        original_mask=original_mask,
-        parameters=parameters,
-        dimensions=dimensions,
-        from_gll_order=from_gll_order,
-    )
+        from_gll_order = original_mesh.shape_order
+        # Time consuming part
+        coeffs, elements = fill_value_array(
+            new_coordinates=unique_new_points,
+            nearest_elements=nearest_element_indices,
+            original_mesh=original_mesh,
+            original_mask=original_mask,
+            parameters=parameters,
+            dimensions=dimensions,
+            from_gll_order=from_gll_order,
+        )
+        if stored_array is not None:
+            print("Saving interpolation matrices")
+            dataset = h5py.File(
+                os.path.join(stored_array, "interp_info.h5"), "w"
+            )
+            for k, v in coeffs.items():
+                dataset.create_dataset(f"coeffs/{k}", data=v)
+            for k, v in elements.items():
+                dataset.create_dataset(f"elements/{k}", data=v)
+            dataset.close()
+
     for layer in coeffs.keys():
-        elms = elements[layer].astype(int)
+        if loop:
+            elms = elements[layer].astype(int)
+        else:
+            elms = elements[layer][()].astype(int)
         for param in parameters:
             values = np.sum(
                 original_mesh.element_nodal_fields[param][
