@@ -152,6 +152,7 @@ def interpolate_to_points(mesh, points, params_to_interp,
     if they are not found. zero is returned
     :param params_to_interp: list of params to interp
     :param make_spherical: bool that determines if mesh gets mapped to a sphere.
+    Careful. Setting this will alter the passed object.
     :param centroid_tree: KDTree initialized from the centroids of the elements
     of mesh. Passing this is optional,, but helps to speed up this
     function when it is placed in a loop.
