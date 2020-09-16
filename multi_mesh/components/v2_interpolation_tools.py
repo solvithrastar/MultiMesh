@@ -143,7 +143,7 @@ def get_element_weights(gll_points, centroid_tree, points):
 
 
 def interpolate_to_points(mesh, points, params_to_interp,
-                          make_spherical=False):
+                          make_spherical=False, centroid_tree=None):
     """
     Interpolates from a mesh to point cloud.
 
@@ -152,15 +152,19 @@ def interpolate_to_points(mesh, points, params_to_interp,
     if they are not found. zero is returned
     :param params_to_interp: list of params to interp
     :param make_spherical: bool that determines if mesh gets mapped to a sphere.
+    :param centroid_tree: KDTree initialized from the centroids of the elements
+    of mesh. Passing this is optional,, but helps to speed up this
+    function when it is placed in a loop.
     :return: array[nparams_to_interp, npoints]
     """
 
     if make_spherical:
         map_to_sphere(mesh)
 
-    elem_centroid = mesh.get_element_centroid()
-    print("Initializing KDtree...")
-    centroid_tree = KDTree(elem_centroid)
+    if not centroid_tree:
+        print("Initializing KDtree...")
+        elem_centroid = mesh.get_element_centroid()
+        centroid_tree = KDTree(elem_centroid)
 
     # Get GLL points from old mesh
     gll_points = mesh.points[mesh.connectivity]
