@@ -101,10 +101,10 @@ def get_element_weights(gll_points, centroid_tree, points):
                 ref_coord = inverse_transform(
                     point, gll_points=gll_points_elem, dimension=3)
 
-                # tolerance of 3%
                 if np.any(np.isnan(ref_coord)):
                     continue
 
+                # tolerance of 5%
                 if np.all(np.abs(ref_coord) < 1.05):
                     coeffs = get_coefficients(2, 0, 0,
                                               np.asfortranarray(
