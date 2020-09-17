@@ -366,6 +366,82 @@ def gll_2_exodus(
         print(f"Finished in time: {runtime} seconds")
 
 
+def interpolate_to_points(
+    mesh, points, params_to_interp, make_spherical=False, geocentric=False
+):
+    """
+    Maps values from a mesh to predefined points. The points can by xyz or
+    geocentric latlondepth
+
+    :param mesh: Salvus mesh
+    :type mesh: Union[str, salvus.mesh.unstructured_mesh.UnstructuredMesh]
+    :param points: An array of points, xyz or latlondepth
+    :type points: numpy.ndarray
+    :param params_to_interp: Which parameters to interpolate
+    :type params_to_interp: list[str]
+    :param make_spherical: If ellipse, should we make it spherical?,
+        defaults to False
+    :type make_spherical: bool, optional
+    :param geocentric: If coords are latlondepth, defaults to False
+    :type geocentric: bool, optional
+    """
+    if geocentric:
+        from multi_mesh.utils import latlondepth_to_xyz
+
+        points = latlondepth_to_xyz(points)
+    from multi_mesh.components.interpolator import interpolate_to_points
+
+    return interpolate_to_points(
+        mesh=mesh,
+        points=points,
+        params_to_interp=params_to_interp,
+        make_spherical=make_spherical,
+    )
+
+
+def interpolate_to_mesh(
+    old_mesh, new_mesh, params_to_interp=["VSV", "VSH", "VPV", "VPH"]
+):
+    """
+    Maps both meshes to a sphere and interpolate values
+    from old mesh to new mesh for params to interp.
+    Returns the original coordinate system
+
+    Values that are not found are given zero
+    """
+    from multi_mesh.components.interpolator import (
+        interpolate_to_points as _interpolate_to_points,
+        map_to_sphere,
+    )
+
+    if isinstance(old_mesh, str):
+        from salvus.mesh.unstructured_mesh import UnstructuredMesh
+
+        old_mesh = UnstructuredMesh.from_h5(old_mesh)
+        if isinstance(new_mesh, str):
+            new_mesh_path = new_mesh
+            new_mesh = UnstructuredMesh.from_h5(new_mesh)
+
+    store original point locations
+    orig_old_elliptic_mesh_points = np.copy(old_mesh.points)
+    orig_new_elliptic_mesh_points = np.copy(new_mesh.points)
+
+    Map both meshes to a sphere
+    map_to_sphere(old_mesh)
+    map_to_sphere(new_mesh)
+    vals = _interpolate_to_points(old_mesh, new_mesh.points, params_to_interp)
+
+    for i, param in enumerate(params_to_interp):
+        new_element_nodal_vals = vals[:, i][new_mesh.connectivity]
+        new_mesh.attach_field(param, new_element_nodal_vals)
+        # new_mesh.element_nodal_fields[param][:] = new_element_nodal_vals
+
+    # Restore original coordinates
+    old_mesh.points = orig_old_elliptic_mesh_points
+    new_mesh.points = orig_new_elliptic_mesh_points
+    new_mesh.write_h5(new_mesh_path)
+
+
 # I'll keep this function for now, might be needed for smoothiepaper revision
 def gradient_2_cartesian_exodus(gradient, cartesian, params, first=False):
     """
