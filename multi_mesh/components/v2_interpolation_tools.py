@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 
 def map_to_ellipse(base_mesh, mesh):
-    """ Takes a base mesh with ellipticity topography and
+    """Takes a base mesh with ellipticity topography and
     stretches the mesh to have the same ellipticity.
 
     # TODO, this could also be merged with interpolate functions, such
@@ -33,22 +33,25 @@ def map_to_ellipse(base_mesh, mesh):
 
     # Get elements and interpolation coefficients for new_points
     print("Retrieving interpolation weigts")
-    elem_indices, coeffs = get_element_weights(gll_points, centroid_tree,
-                                               mesh.points)
+    elem_indices, coeffs = get_element_weights(
+        gll_points, centroid_tree, mesh.points
+    )
 
     num_failed = len(np.where(elem_indices == -1)[0])
     if num_failed > 0:
         raise Exception(
-            f"{num_failed} points could not find an enclosing element.")
+            f"{num_failed} points could not find an enclosing element."
+        )
 
     mesh_point_r_ratio = np.sum(
-        coeffs * r_ratio_element_nodal_base[elem_indices], axis=1)
+        coeffs * r_ratio_element_nodal_base[elem_indices], axis=1
+    )
     mesh.points = np.array(mesh_point_r_ratio * mesh.points.T).T
     base_mesh.points = orig_old_elliptic_mesh_points
 
 
 def map_to_sphere(mesh):
-    """ Takes a salvus mesh and converts it to a sphere.
+    """Takes a salvus mesh and converts it to a sphere.
     Acts on the passed object
     """
 
@@ -82,8 +85,9 @@ def get_element_weights(gll_points, centroid_tree, points):
     nelem_to_search = 25
 
     def _get_coeffs(point_indices):
-        _, nearest_elements = centroid_tree.query(points[point_indices],
-                                                  k=nelem_to_search)
+        _, nearest_elements = centroid_tree.query(
+            points[point_indices], k=nelem_to_search
+        )
         element_num = np.arange(len(point_indices))
 
         def check_inside(index, element_num):
@@ -94,28 +98,34 @@ def get_element_weights(gll_points, centroid_tree, points):
 
             for element in nearest_elements[element_num]:
                 # get element gll_points
-                gll_points_elem = np.asfortranarray(gll_points[element, :, :],
-                                                    dtype=np.float64)
+                gll_points_elem = np.asfortranarray(
+                    gll_points[element, :, :], dtype=np.float64
+                )
                 point = np.asfortranarray(points[index])
 
                 ref_coord = inverse_transform(
-                    point, gll_points=gll_points_elem, dimension=3)
+                    point, gll_points=gll_points_elem, dimension=3
+                )
 
                 if np.any(np.isnan(ref_coord)):
                     continue
 
                 # tolerance of 5%
                 if np.all(np.abs(ref_coord) < 1.05):
-                    coeffs = get_coefficients(2, 0, 0,
-                                              np.asfortranarray(
-                                                  ref_coord, dtype=np.float64),
-                                              3)
+                    coeffs = get_coefficients(
+                        2,
+                        0,
+                        0,
+                        np.asfortranarray(ref_coord, dtype=np.float64),
+                        3,
+                    )
                     return element, coeffs
             # return weights zero if nothing found
             return -1, np.zeros(27)
 
-        a = np.vectorize(check_inside, signature='(),()->(),(n)',
-                         otypes=[int, float])
+        a = np.vectorize(
+            check_inside, signature="(),()->(),(n)", otypes=[int, float]
+        )
         return a(point_indices, element_num)
 
     # Split array in chunks
@@ -126,9 +136,11 @@ def get_element_weights(gll_points, centroid_tree, points):
     elems = []
     coeffs = []
     with multiprocessing.Pool(num_processes) as pool:
-        with tqdm(total=len(task_list),
-                  bar_format="{l_bar}{bar}[{elapsed}<{remaining},"
-                             " '{rate_fmt}{postfix}]") as pbar:
+        with tqdm(
+            total=len(task_list),
+            bar_format="{l_bar}{bar}[{elapsed}<{remaining},"
+            " '{rate_fmt}{postfix}]",
+        ) as pbar:
             for i, r in enumerate(pool.imap(_get_coeffs, task_list)):
                 elem_in, coeff = r
                 pbar.update()
@@ -144,6 +156,7 @@ def get_element_weights(gll_points, centroid_tree, points):
 
 def interpolate_to_points(mesh, points, params_to_interp,
                           make_spherical=False, centroid_tree=None):
+
     """
     Interpolates from a mesh to point cloud.
 
@@ -172,29 +185,32 @@ def interpolate_to_points(mesh, points, params_to_interp,
 
     # Get elements and interpolation coefficients for new_points
     print("Retrieving interpolation weigts")
-    elem_indices, coeffs = get_element_weights(gll_points, centroid_tree,
-                                               points)
+    elem_indices, coeffs = get_element_weights(
+        gll_points, centroid_tree, points
+    )
 
     num_failed = len(np.where(elem_indices == -1)[0])
     if num_failed > 0:
-        print(num_failed,
-              "points could not find an enclosing element. "
-              "These points will be set to zero. "
-              "Please check your domain or the interpolation tuning parameters")
+        print(
+            num_failed,
+            "points could not find an enclosing element. "
+            "These points will be set to zero. "
+            "Please check your domain or the interpolation tuning parameters",
+        )
 
     print("Interpolating fields...")
     vals = np.zeros((len(points), len(params_to_interp)))
     for i, param in enumerate(params_to_interp):
         old_element_nodal_vals = mesh.element_nodal_fields[param]
-        vals[:, i] = np.sum(coeffs * old_element_nodal_vals[elem_indices],
-                            axis=1)
+        vals[:, i] = np.sum(
+            coeffs * old_element_nodal_vals[elem_indices], axis=1
+        )
     return vals
 
 
 def interpolate_to_mesh(
-        old_mesh,
-        new_mesh,
-        params_to_interp=["VSV", "VSH", "VPV", "VPH"]):
+    old_mesh, new_mesh, params_to_interp=["VSV", "VSH", "VPV", "VPH"]
+):
     """
     Maps both meshes to a sphere and interpolate values
     from old mesh to new mesh for params to interp.

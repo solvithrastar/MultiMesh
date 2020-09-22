@@ -16,6 +16,8 @@ from numba import jit
 import xarray as xr
 from typing import Dict, List
 from collections import defaultdict
+import multiprocessing
+
 
 # Buffer the salvus_fem functions, so accessing becomes much faster
 for name, func in salvus.fem._fcts:
@@ -56,7 +58,11 @@ for name, func in salvus.fem._fcts:
 
 
 def query_model(
-    coordinates, model, nelem_to_search, model_path, coordinates_path,
+    coordinates,
+    model,
+    nelem_to_search,
+    model_path,
+    coordinates_path,
 ):
     """
     Provide an array of coordinates, returns an array with model parameters
@@ -310,7 +316,7 @@ def gll_2_gll_layered(
     assembles a list of unique points which it interpolates onto.
     It then reconstructs the point values based on the initial to_gll points
     and saves it to file.
-    Currently not stable if the interpolated parameters are not the same as 
+    Currently not stable if the interpolated parameters are not the same as
     the parameters on the mesh to be interpolated from. Recommend interpolating
     all the parameters from the from_gll mesh.
 
@@ -318,7 +324,7 @@ def gll_2_gll_layered(
     :param to_gll: path to gll mesh to interpolate to
     :param dimensions: dimension of meshes.
     :param nelem_to_search: amount of elements to check
-    :param parameters: Parameters to be interpolated, possible to pass, "ISO", 
+    :param parameters: Parameters to be interpolated, possible to pass, "ISO",
     "TTI" or a list of parameters.
     :param gradient: If this is a gradient to be added to another gradient,
     only put true if you want to add on top of a currently existing gradient
@@ -345,46 +351,70 @@ def gll_2_gll_layered(
 
     new_mesh = UnstructuredMesh.from_h5(to_gll)
     # Stored array stuff here
+    loop = True
+    if stored_array is not None and os.path.exists(
+        os.path.join(stored_array, "interp_info.h5")
+    ):
+        print("No need for looping, we have the matrices")
+        loop = False
+        dataset = h5py.File(os.path.join(stored_array, "interp_info.h5"), "r")
+        coeffs = dataset["coeffs"]
+        elements = dataset["elements"]
 
     # Unique new points is a dictionary with tuples of coordinates and a
     # reconstruction array
     unique_new_points, mask, layers = utils.get_unique_points(
         points=new_mesh, mesh=True, layers=layers
     )
+    parameters = utils.pick_parameters(parameters)
 
     original_trees = {}
     nearest_element_indices = {}
     # Making a dictionary of KDTrees, one per layer
     # Now we do it based on element centroids
-    for layer in layers:
-        layer = str(layer)
-        points = original_mesh.get_element_centroid()[original_mask[layer]]
-        original_trees[layer] = KDTree(points)
-        nearest_element_indices[layer] = np.zeros(
-            shape=(unique_new_points[layer][0].shape[0], nelem_to_search),
-            dtype=np.int,
-        )
-        _, nearest_element_indices[layer][:, :] = original_trees[layer].query(
-            unique_new_points[layer][0], k=nelem_to_search
-        )
+    if loop:
+        for layer in layers:
+            layer = str(layer)
+            points = original_mesh.get_element_centroid()[original_mask[layer]]
+            original_trees[layer] = KDTree(points)
+            nearest_element_indices[layer] = np.zeros(
+                shape=(unique_new_points[layer][0].shape[0], nelem_to_search),
+                dtype=np.int,
+            )
+            _, nearest_element_indices[layer][:, :] = original_trees[
+                layer
+            ].query(unique_new_points[layer][0], k=nelem_to_search)
 
-    # I should try the tri-linear interpolation here too. But then I KDTree to the gll points.
-    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
+        # I should try the tri-linear interpolation here too. But then I KDTree to the gll points.
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
 
-    parameters = utils.pick_parameters(parameters)
-    from_gll_order = original_mesh.shape_order
-    # Time consuming part
-    coeffs, elements = fill_value_array(
-        new_coordinates=unique_new_points,
-        nearest_elements=nearest_element_indices,
-        original_mesh=original_mesh,
-        original_mask=original_mask,
-        parameters=parameters,
-        dimensions=dimensions,
-        from_gll_order=from_gll_order,
-    )
+        from_gll_order = original_mesh.shape_order
+        # Time consuming part
+        coeffs, elements = fill_value_array(
+            new_coordinates=unique_new_points,
+            nearest_elements=nearest_element_indices,
+            original_mesh=original_mesh,
+            original_mask=original_mask,
+            parameters=parameters,
+            dimensions=dimensions,
+            from_gll_order=from_gll_order,
+        )
+        if stored_array is not None:
+            print("Saving interpolation matrices")
+            dataset = h5py.File(
+                os.path.join(stored_array, "interp_info.h5"), "w"
+            )
+            for k, v in coeffs.items():
+                dataset.create_dataset(f"coeffs/{k}", data=v)
+            for k, v in elements.items():
+                dataset.create_dataset(f"elements/{k}", data=v)
+            dataset.close()
+
     for layer in coeffs.keys():
-        elms = elements[layer].astype(int)
+        if loop:
+            elms = elements[layer].astype(int)
+        else:
+            elms = elements[layer][()].astype(int)
         for param in parameters:
             values = np.sum(
                 original_mesh.element_nodal_fields[param][
@@ -428,7 +458,7 @@ def gll_2_gll(
     assembles a list of unique points which it interpolates onto.
     It then reconstructs the point values based on the initial to_gll points
     and saves it to file.
-    Currently not stable if the interpolated parameters are not the same as 
+    Currently not stable if the interpolated parameters are not the same as
     the parameters on the mesh to be interpolated from. Recommend interpolating
     all the parameters from the from_gll mesh.
 
@@ -436,7 +466,7 @@ def gll_2_gll(
     :param to_gll: path to gll mesh to interpolate to
     :param dimensions: dimension of meshes.
     :param nelem_to_search: amount of elements to check
-    :param parameters: Parameters to be interpolated, possible to pass, "ISO", 
+    :param parameters: Parameters to be interpolated, possible to pass, "ISO",
     "TTI" or a list of parameters.
     :param gradient: If this is a gradient to be added to another gradient,
     only put true if you want to add on top of a currently existing gradient
@@ -649,6 +679,207 @@ def gll_2_gll(
     )
 
     new[to_model_path][:, :, :] = values
+
+
+def interpolate_to_points(
+    mesh, points, params_to_interp, make_spherical=False
+):
+    """
+    Interpolates from a mesh to point cloud.
+
+    :param mesh: Mesh from which you want to interpolate
+    :param points: np.array of points that require interpolation,
+    if they are not found. zero is returned
+    :param params_to_interp: list of params to interp
+    :param make_spherical: bool that determines if mesh gets mapped to a sphere.
+    :return: array[nparams_to_interp, npoints]
+    """
+
+    if make_spherical:
+        map_to_sphere(mesh)
+    if isinstance(mesh, str):
+        from salvus.mesh.unstructured_mesh import UnstructuredMesh
+
+        mesh = UnstructuredMesh.from_h5(mesh)
+    elem_centroid = mesh.get_element_centroid()
+    print("Initializing KDtree...")
+    centroid_tree = KDTree(elem_centroid)
+
+    # Get GLL points from old mesh
+    gll_points = mesh.points[mesh.connectivity]
+    gll_order = mesh.shape_order
+
+    # Get elements and interpolation coefficients for new_points
+    print("Retrieving interpolation weights")
+    elem_indices, coeffs = get_element_weights(
+        gll_points, gll_order, centroid_tree, points
+    )
+
+    num_failed = len(np.where(elem_indices == -1)[0])
+    if num_failed > 0:
+        print(
+            num_failed,
+            "points could not find an enclosing element. "
+            "These points will be set to zero. "
+            "Please check your domain or the interpolation tuning parameters",
+        )
+
+    print("Interpolating fields...")
+    vals = np.zeros((len(points), len(params_to_interp)))
+    for i, param in enumerate(params_to_interp):
+        old_element_nodal_vals = mesh.element_nodal_fields[param]
+        vals[:, i] = np.sum(
+            coeffs * old_element_nodal_vals[elem_indices], axis=1
+        )
+    return vals
+
+
+def map_to_ellipse(base_mesh, mesh):
+    """Takes a base mesh with ellipticity topography and
+    stretches the mesh to have the same ellipticity.
+
+    # TODO, this could also be merged with interpolate functions, such
+    # TODO that weights do not need to be computed twice
+    """
+    # Get radial ratio for each element node
+    r_earth = 6371000
+    r = np.sqrt(np.sum(base_mesh.points ** 2, axis=1)) / r_earth
+    _, i = np.unique(base_mesh.connectivity, return_index=True)
+    rad_1d_values = base_mesh.element_nodal_fields["z_node_1D"].flatten()[i]
+    r_ratio = r / rad_1d_values
+    r_ratio_element_nodal_base = r_ratio[base_mesh.connectivity]
+
+    # Map to sphere and store original points
+    orig_old_elliptic_mesh_points = np.copy(base_mesh.points)
+    map_to_sphere(base_mesh)
+    map_to_sphere(mesh)
+
+    # For each point in new mesh find nearest elements centroids in old mesh
+    elem_centroid = base_mesh.get_element_centroid()
+    centroid_tree = KDTree(elem_centroid)
+    gll_points = base_mesh.points[base_mesh.connectivity]
+
+    # Get elements and interpolation coefficients for new_points
+    print("Retrieving interpolation weigts")
+    elem_indices, coeffs = get_element_weights(
+        gll_points, centroid_tree, mesh.points
+    )
+
+    num_failed = len(np.where(elem_indices == -1)[0])
+    if num_failed > 0:
+        raise Exception(
+            f"{num_failed} points could not find an enclosing element."
+        )
+
+    mesh_point_r_ratio = np.sum(
+        coeffs * r_ratio_element_nodal_base[elem_indices], axis=1
+    )
+    mesh.points = np.array(mesh_point_r_ratio * mesh.points.T).T
+    base_mesh.points = orig_old_elliptic_mesh_points
+
+
+def map_to_sphere(mesh):
+    """Takes a salvus mesh and converts it to a sphere.
+    Acts on the passed object
+    """
+
+    _, i = np.unique(mesh.connectivity, return_index=True)
+    rad_1D = mesh.element_nodal_fields["z_node_1D"].flatten()[i]
+
+    r_earth = 6371000
+    x, y, z = mesh.points.T
+    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+
+    # Conert all points that do not lie right in the core
+    x[r > 0] = x[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
+    y[r > 0] = y[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
+    z[r > 0] = z[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
+
+
+def get_element_weights(gll_points, shape_order, centroid_tree, points):
+    """
+    A function to figure out inside which element the point to be
+    interpolated is. In addition, it gives the interpolation coefficients
+    for the respective element.
+    Returns  -1 and no coeffs when nothing is found.
+
+    :param gll: All GLL nodes from old_mesh
+    :param centroid_tree: scipy.spatial.cKDTree that is initialized with the
+     centroids of the elements of old_mesh
+    :param points: List of points that require interpolation
+    :return: the enclosing elements and interpolation weights
+    """
+    global _get_coeffs
+    nelem_to_search = 25
+
+    def _get_coeffs(point_indices):
+        _, nearest_elements = centroid_tree.query(
+            points[point_indices], k=nelem_to_search
+        )
+        element_num = np.arange(len(point_indices))
+
+        def check_inside(index, element_num):
+            """
+            returns the element_id and coefficients for new_points[index]
+            returns -1 for index when nothing is found
+            """
+
+            for element in nearest_elements[element_num]:
+                # get element gll_points
+                gll_points_elem = np.asfortranarray(
+                    gll_points[element, :, :], dtype=np.float64
+                )
+                point = np.asfortranarray(points[index])
+
+                ref_coord = inverse_transform(
+                    point, gll_points=gll_points_elem, dimension=3
+                )
+
+                # tolerance of 3%
+                if np.any(np.isnan(ref_coord)):
+                    continue
+
+                if np.all(np.abs(ref_coord) < 1.05):
+                    coeffs = get_coefficients(
+                        shape_order,
+                        0,
+                        0,
+                        np.asfortranarray(ref_coord, dtype=np.float64),
+                        3,
+                    )
+                    return element, coeffs
+            # return weights zero if nothing found
+            return -1, np.zeros((shape_order + 1) ** 3)
+
+        a = np.vectorize(
+            check_inside, signature="(),()->(),(n)", otypes=[int, float]
+        )
+        return a(point_indices, element_num)
+
+    # Split array in chunks
+    num_processes = multiprocessing.cpu_count()
+    n = 50 * num_processes
+    task_list = np.array_split(np.arange(len(points)), n)
+
+    elems = []
+    coeffs = []
+    with multiprocessing.Pool(num_processes) as pool:
+        with tqdm(
+            total=len(task_list),
+            bar_format="{l_bar}{bar}[{elapsed}<{remaining},"
+            " '{rate_fmt}{postfix}]",
+        ) as pbar:
+            for i, r in enumerate(pool.imap(_get_coeffs, task_list)):
+                elem_in, coeff = r
+                pbar.update()
+                elems.append(elem_in)
+                coeffs.append(coeff)
+        pool.close()
+        pool.join()
+
+    elems = np.concatenate(elems)
+    coeffs = np.concatenate(coeffs)
+    return elems, coeffs
 
 
 def get_coefficients(a, b, c, ref_coord, dimension):
@@ -877,7 +1108,7 @@ def find_gll_coeffs(
     Loop through coordinates, figure out which elements they are in and
     compute the relevent gll_coefficients. Returns element indices and
     corresponding coefficients.
-    
+
     :param original_coordinates: An array of coordinates from the hdf5 file
     which you want to interpolate from
     :type original_coordinates: np.array
@@ -918,4 +1149,3 @@ def find_gll_coeffs(
         #     print(ref_coord.type)
 
     return element, coeffs
-
