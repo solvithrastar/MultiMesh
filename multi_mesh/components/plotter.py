@@ -292,6 +292,8 @@ def plot_cross_section(
         nrads: int = 201,
         npoints: int = 301,
         filename: str = "cross_section.pdf",
+        cmap = "fusion",
+        reverse: bool = True,
         clim: Tuple[float, float] = (-5, 5),
         param_to_interp: str = "VSV",
         discontinuities_to_plot: list = [410, 660, 1000]):
@@ -307,10 +309,12 @@ def plot_cross_section(
     :param nrads: Number of points to interpolate in the radial direction
     :param npoints: Number of points to interpolate along the greatcircle
     :param filename: name of the file that gets saved
-    :param clim: Colorbar limits. This is a tuple of min and max
+    :param cmap: Name of the colorbar
+    :param reverse: Reverse color bar True/False
+    :param clim: Colorbar limits. This is a tuple of (min, max)
     :param param_to_interp: Parameter that you want to plot
-    :param discontinuities_to_plot: list of discontinuities to plot
-
+    :param discontinuities_to_plot: list of discontinuities to plot, pass an
+    empty list to plot nothing.
     """
 
     # change threshold
@@ -321,6 +325,10 @@ def plot_cross_section(
 
     if isinstance(mesh, str):
         mesh = UnstructuredMesh.from_h5(mesh)
+
+    if isinstance(cmap, str):
+        cmap = _get_colormap(cmap, reverse)
+
 
     r_earth = 6371000
     rads = np.linspace(r_earth - max_depth_in_km * 1000, r_earth, nrads)
@@ -393,7 +401,7 @@ def plot_cross_section(
 
     # Plot cross section
     ax = fig.add_subplot(spec[1])
-    plt.pcolormesh(all_x, all_y, data.T * 100, cmap="seismic_r",
+    plt.pcolormesh(all_x, all_y, data.T * 100, cmap=cmap,
                          shading="auto")
 
     # Plot dots on cross section
