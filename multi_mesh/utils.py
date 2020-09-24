@@ -4,6 +4,7 @@ A few functions to help out with specific tasks
 import numpy as np
 import pathlib
 
+from geographiclib import geodesic
 from pyexodus import exodus
 from multi_mesh.io.exodus import Exodus
 import h5py
@@ -488,6 +489,10 @@ def lat2colat(lat):
     return 90.0 - lat
 
 
+def colat2lat(colat):
+    return 90.0 - colat
+
+
 def latlondepth_to_xyz(latlondepth: np.array):
     """
     Coordinate transformation from lat lon depth to x y z.
@@ -505,3 +510,79 @@ def latlondepth_to_xyz(latlondepth: np.array):
     z = r * np.cos(colat)
     xyz = np.array([x, y, z]).T
     return xyz
+
+
+def greatcircle_points(
+        point_1_lat: float,
+        point_1_lng: float,
+        point_2_lat: float,
+        point_2_lng: float,
+        npts: int = 101,
+):
+    """
+    Returns a list of points that lie on the great circle of the WGS84 ellipsoid
+
+    :param point_1_lat: Lat pnt 1
+    :param point_1_lng: Lng pnt 1
+    :param point_2_lat: Lat pnt 2
+    :param point_2_lng: Lng pnt 2
+    :param max_npts: Maximum number of points to return, defaults to 3000
+    :type max_npts: int, optional
+    """
+    point = geodesic.Geodesic.WGS84.Inverse(
+        lat1=point_1_lat, lon1=point_1_lng, lat2=point_2_lat, lon2=point_2_lng
+    )
+    line = geodesic.Geodesic.WGS84.Line(
+        point_1_lat, point_1_lng, point["azi1"]
+    )
+
+    if npts <= 3:
+        raise Exception("You should supply at least 3 points")
+
+    points = []
+    for i in range(npts):
+        line_point = line.Position(i * point["s12"] / float(npts))
+        points.append([line_point["lat2"], line_point["lon2"]])
+    return np.array(points)
+
+
+def sph2cart(col, lon, rad):
+    """
+    Given spherical coordinates as input, returns their cartesian equivalent.
+    :param col: Colatitude [radians].
+    :param lon: Longitude [radians].
+    :param rad: Radius.
+    :return: x, y, z.
+    """
+
+    col, lon, rad = np.asarray(col), np.asarray(lon), np.asarray(rad)
+    if (0 > col).any() or (col > np.math.pi).any():
+        raise ValueError('Colatitude must be in range [0, pi].')
+
+    x = rad * np.sin(col) * np.cos(lon)
+    y = rad * np.sin(col) * np.sin(lon)
+    z = rad * np.cos(col)
+
+    return x, y, z
+
+
+def cart2sph(x, y, z):
+    """
+    Given cartesian coordinates, returns their spherical equivalent.
+    :param x: x.
+    :param y: y.
+    :param z: z.
+    :return: colatitude, longitude, and radius
+    """
+
+    x, y, z = np.asarray(x), np.asarray(y), np.asarray(z)
+    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+
+    # Handle division by zero at the core
+    with np.errstate(invalid='ignore'):
+        c = np.divide(z, r)
+        c = np.nan_to_num(c)
+
+    c = np.arccos(c)
+    l = np.arctan2(y, x)
+    return c, l, r

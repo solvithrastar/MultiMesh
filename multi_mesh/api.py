@@ -7,6 +7,7 @@ import sys
 import time
 import numpy as np
 import warnings
+from salvus.mesh.unstructured_mesh import UnstructuredMesh
 from typing import Union, Tuple
 import cartopy.crs as ccrs
 
