@@ -96,6 +96,48 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     # configured properly.
 
 
+def sph2cart(col, lon, rad):
+    """
+    Given spherical coordinates as input, returns their cartesian equivalent.
+    :param col: Colatitude [radians].
+    :param lon: Longitude [radians].
+    :param rad: Radius.
+    :return: x, y, z.
+    """
+
+    col, lon, rad = np.asarray(col), np.asarray(lon), np.asarray(rad)
+    if (0 > col).any() or (col > np.math.pi).any():
+        raise ValueError("Colatitude must be in range [0, pi].")
+
+    x = rad * np.sin(col) * np.cos(lon)
+    y = rad * np.sin(col) * np.sin(lon)
+    z = rad * np.cos(col)
+
+    return x, y, z
+
+
+def cart2sph(x, y, z):
+    """
+    Given cartesian coordinates, returns their spherical equivalent.
+    :param x: x.
+    :param y: y.
+    :param z: z.
+    :return: colatitude, longitude, and radius
+    """
+
+    x, y, z = np.asarray(x), np.asarray(y), np.asarray(z)
+    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+
+    # Handle division by zero at the core
+    with np.errstate(invalid="ignore"):
+        c = np.divide(z, r)
+        c = np.nan_to_num(c)
+
+    c = np.arccos(c)
+    l = np.arctan2(y, x)
+    return c, l, r
+
+
 def remove_and_create_empty_dataset(
     gll_model, parameters: list, model: str, coordinates: str
 ):
@@ -317,7 +359,8 @@ def _create_dataset(
 
 
 def _create_mask(
-    mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh, layers: List[int],
+    mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
+    layers: List[int],
 ) -> np.ndarray:
     """
     Create an array which is used to mask elements in the dataset
@@ -438,7 +481,7 @@ def get_unique_points(
     Take an array of coordinates and find the unique coordinates. Returns
     the unique coordinates and an array of indices that can be used to
     reconstruct the previous array.
-    
+
     :param points: Coordinates, or a file
     :type points: Union[numpy.array, str,
         salvus.mesh.unstructured_mesh.UnstructuredMesh]

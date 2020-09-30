@@ -347,7 +347,7 @@ def interpolate_to_mesh(
 
 
 def plot_depth_slice(
-    mesh: Union[str, UnstructuredMesh],
+    mesh: Union[str, object],
     depth_in_km: float,
     num: int,
     lat_extent: Tuple[float, float] = (-90.0, 90.0),
@@ -358,6 +358,7 @@ def plot_depth_slice(
     figsize: Tuple[int, int] = (15, 8),
     projection: ccrs = ccrs.Mollweide(),
     coastlines: bool = True,
+    borders: bool = False,
     stock_img: bool = False,
     savefig: bool = False,
     figname: str = "earth.png",
@@ -391,6 +392,8 @@ def plot_depth_slice(
     :type projection: ccrs, optional
     :param coastlines: plot coastlines, defaults to True
     :type coastlines: bool, optional
+    :param borders: plot country borders, defaults to False
+    :type borders: bool, optional
     :param stock_img: Color oceans and continents, defaults to False
     :type stock_img: bool, optional
     :param savefig: Should figure be saved, defaults to False
@@ -417,6 +420,7 @@ def plot_depth_slice(
         figsize=figsize,
         projection=projection,
         coastlines=coastlines,
+        borders=borders,
         stock_img=stock_img,
         savefig=savefig,
         figname=figname,

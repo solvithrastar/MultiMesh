@@ -2,7 +2,9 @@ from typing import Union, Tuple
 import numpy as np
 import cmasher as cmr
 import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
+from salvus.mesh.unstructured_mesh import UnstructuredMesh
 
 
 def plot_depth_slice(
@@ -17,6 +19,7 @@ def plot_depth_slice(
     figsize: Tuple[int, int] = (15, 8),
     projection: ccrs = ccrs.Mollweide(),
     coastlines: bool = True,
+    borders: bool = False,
     stock_img: bool = False,
     savefig: bool = False,
     figname: str = "earth.png",
@@ -50,6 +53,8 @@ def plot_depth_slice(
     :type projection: ccrs, optional
     :param coastlines: plot coastlines, defaults to True
     :type coastlines: bool, optional
+    :param borders: plot country borders, defaults to False
+    :type borders: bool, optional
     :param stock_img: Color oceans and continents, defaults to False
     :type stock_img: bool, optional
     :param savefig: Should figure be saved, defaults to False
@@ -68,8 +73,6 @@ def plot_depth_slice(
         cmap = _get_colormap(cmap, reverse)
 
     if isinstance(mesh, str):
-        from salvus.mesh.unstructured_mesh import UnstructuredMesh
-
         mesh = UnstructuredMesh.from_h5(mesh)
 
     points = _create_depthslice(
@@ -115,6 +118,8 @@ def plot_depth_slice(
     )
     if coastlines:
         ax.coastlines()
+    if borders:
+        ax.add_feature(cfeature.BORDERS)
     if plot_diff_percentage:
         ax.set_title(
             f"{parameter_to_plot} deviations at {depth_in_km} km depth"
