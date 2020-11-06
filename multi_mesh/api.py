@@ -365,6 +365,8 @@ def plot_depth_slice(
     figname: str = "earth.png",
     reverse: bool = False,
     zero_center: bool = True,
+    title: str = None,
+    limits: Tuple[float, float] = None,
 ):
     """
     Plot a depth slice of a Salvus Mesh
@@ -406,6 +408,10 @@ def plot_depth_slice(
     :param zero_center: Make sure that colorbar is zero centered. Mostly
         important for the differential plot, defaults to True
     :type zero_center: bool, optional
+    :param title: If you want a custom title to your plot, defaults to None
+    :type title: str, optional
+    :param limits: If you want to fix your colorbar limits, defaults to None
+    :type limits: Tuple[float, float]
     """
     from multi_mesh.components.plotter import plot_depth_slice
 
@@ -427,6 +433,8 @@ def plot_depth_slice(
         figname=figname,
         reverse=reverse,
         zero_center=zero_center,
+        title=title,
+        limits=limits,
     )
 
 

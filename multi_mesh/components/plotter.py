@@ -30,6 +30,8 @@ def plot_depth_slice(
     figname: str = "earth.png",
     reverse: bool = False,
     zero_center: bool = True,
+    title: str = None,
+    limits: Tuple[float, float] = None,
 ):
     """
     Long and beautiful docstring
@@ -71,6 +73,10 @@ def plot_depth_slice(
     :param zero_center: Make sure that colorbar is zero centered. Mostly
         important for the differential plot, defaults to True
     :type zero_center: bool, optional
+    :param title: If you want a custom title to your plot, defaults to None
+    :type title: str, optional
+    :param limits: If you want to fix your colorbar limits, defaults to None
+    :type limits: Tuple[float, float]
     """
 
     if isinstance(cmap, str):
@@ -90,7 +96,7 @@ def plot_depth_slice(
         mesh=mesh,
         points=points,
         params_to_interp=[parameter_to_plot],
-        make_spherical=True,
+        make_spherical=False,
         geocentric=True,
     ).reshape(num, num)
 
@@ -99,6 +105,10 @@ def plot_depth_slice(
         vals = (vals - lat_mean) / lat_mean * 100.0
         vmax = np.max(np.abs(vals))
         vmin = -vmax
+        if vmax < 0.1:  # This is in here for 1D models which are handled badly
+            vals = np.zeros_like(vals)
+    else:
+        zero_center = False
 
     Y, X = np.meshgrid(
         np.linspace(lat_extent[0], lat_extent[1], num=num),
@@ -107,6 +117,9 @@ def plot_depth_slice(
     if not zero_center:
         vmax = None
         vmin = None
+    if limits is not None:
+        vmax = limits[1]
+        vmin = limits[0]
     fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(1, 1, 1, projection=projection)
     if stock_img:
@@ -124,12 +137,15 @@ def plot_depth_slice(
         ax.coastlines()
     if borders:
         ax.add_feature(cfeature.BORDERS)
-    if plot_diff_percentage:
-        ax.set_title(
-            f"{parameter_to_plot} deviations at {depth_in_km} km depth"
-        )
+    if title is None:
+        if plot_diff_percentage:
+            ax.set_title(
+                f"{parameter_to_plot} deviations at {depth_in_km} km depth"
+            )
+        else:
+            ax.set_title(f"{parameter_to_plot} at {depth_in_km} km depth")
     else:
-        ax.set_title(f"{parameter_to_plot} at {depth_in_km} km depth")
+        ax.set_title(title, fontsize=20)
     fig.colorbar(img, ax=ax)
     fig.tight_layout()
     if savefig:
@@ -287,6 +303,7 @@ def create_projection(
 
 def plot_cross_section(
     mesh: Union[str, UnstructuredMesh],
+    ref_mesh: Union[str, UnstructuredMesh],
     point_1_lat: float = -20,
     point_1_lng: float = 30,
     point_2_lat: float = 20,
@@ -305,6 +322,7 @@ def plot_cross_section(
     Plots a cross section through the globe between two specified points.
 
     :param mesh: salvus mesh object or string
+    :param ref_mesh: salvus mesh object or string to reference the velocities
     :param point_1_lat: Point 1 Latitude
     :param point_1_lng: Point 1 Longitude
     :param point_2_lat: Point 2 Latitude
@@ -329,6 +347,8 @@ def plot_cross_section(
 
     if isinstance(mesh, str):
         mesh = UnstructuredMesh.from_h5(mesh)
+    if isinstance(ref_mesh, str):
+        ref_mesh = UnstructuredMesh.from_h5(ref_mesh)
 
     if isinstance(cmap, str):
         cmap = _get_colormap(cmap, reverse)
@@ -364,6 +384,13 @@ def plot_cross_section(
         make_spherical=True,
         params_to_interp=[param_to_interp],
     )
+    ref_data = interpolate_to_points(
+        mesh=ref_mesh,
+        points=points,
+        make_spherical=True,
+        params_to_interp=[param_to_interp],
+    )
+    data = (data - ref_data) / ref_data * 100.0
     data = data.reshape(nrads, npoints)
 
     # Generate 2D grid, data is plotted on a perfect sphere
@@ -411,13 +438,14 @@ def plot_cross_section(
         color="red",
         transform=ccrs.Geodetic(),
     )
+    # ccrs.Geodetic()
     plt.plot(start_lng, start_lat, "bo", transform=ccrs.Geodetic())
-    plt.plot(mid_lng, mid_lat, "go", transform=ccrs.PlateCarree())
+    plt.plot(mid_lng, mid_lat, "go", transform=ccrs.Geodetic())
     plt.plot(end_lng, end_lat, "ro", transform=ccrs.Geodetic())
 
     # Plot cross section
     ax = fig.add_subplot(spec[1])
-    plt.pcolormesh(all_x, all_y, data.T * 100, cmap=cmap, shading="auto")
+    plt.pcolormesh(all_x, all_y, data.T, cmap=cmap, shading="auto")
 
     # Plot dots on cross section
     left_x = all_x[0, -1]
