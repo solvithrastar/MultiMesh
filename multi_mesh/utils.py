@@ -11,6 +11,7 @@ import h5py
 import xarray as xr
 from typing import Union, List, Tuple
 import salvus.mesh.unstructured_mesh
+import multi_mesh.components.salvus_mesh_reader as smr
 
 
 def get_rot_matrix(angle, x, y, z):
@@ -387,7 +388,9 @@ def _create_mask(
 
 
 def _assess_layers(
-    mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
+    mesh: Union[
+        salvus.mesh.unstructured_mesh.UnstructuredMesh, smr.SalvusMesh
+    ],
     layers: Union[List[int], str],
 ) -> Tuple[List[int], bool]:
     """
@@ -399,6 +402,7 @@ def _assess_layers(
     :type layers: Union[List[int], str]
     """
     # We sort layers in descending order in order to make moho_idx make sense
+    _ = mesh.get_elemental_fields()
     mesh_layers = np.sort(np.unique(mesh.elemental_fields["layer"]))[
         ::-1
     ].astype(int)
@@ -492,7 +496,7 @@ def get_unique_points(
     :param layers: If points are restricted to specific layers.
     :type layers: Union[List[int], str]
     """
-    if not mesh:
+    if isinstance(points, np.ndarray):
         all_points = points.reshape(
             (points.shape[0] * points.shape[1], points.shape[2])
         )
@@ -556,11 +560,11 @@ def latlondepth_to_xyz(latlondepth: np.array):
 
 
 def greatcircle_points(
-        point_1_lat: float,
-        point_1_lng: float,
-        point_2_lat: float,
-        point_2_lng: float,
-        npts: int = 101,
+    point_1_lat: float,
+    point_1_lng: float,
+    point_2_lat: float,
+    point_2_lng: float,
+    npts: int = 101,
 ):
     """
     Returns a list of points that lie on the great circle of the WGS84 ellipsoid
@@ -600,7 +604,7 @@ def sph2cart(col, lon, rad):
 
     col, lon, rad = np.asarray(col), np.asarray(lon), np.asarray(rad)
     if (0 > col).any() or (col > np.math.pi).any():
-        raise ValueError('Colatitude must be in range [0, pi].')
+        raise ValueError("Colatitude must be in range [0, pi].")
 
     x = rad * np.sin(col) * np.cos(lon)
     y = rad * np.sin(col) * np.sin(lon)
@@ -622,7 +626,7 @@ def cart2sph(x, y, z):
     r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
 
     # Handle division by zero at the core
-    with np.errstate(invalid='ignore'):
+    with np.errstate(invalid="ignore"):
         c = np.divide(z, r)
         c = np.nan_to_num(c)
 

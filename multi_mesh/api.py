@@ -9,7 +9,8 @@ import numpy as np
 import warnings
 from salvus.mesh.unstructured_mesh import UnstructuredMesh
 from typing import Union, Tuple
-import cartopy.crs as ccrs
+
+# import cartopy.crs as ccrs
 
 import salvus.fem
 
@@ -220,6 +221,64 @@ def gll_2_gll_layered(
 
     if runtime >= 60:
         runtime = runtime / 60
+        print(f"Finished in time: {runtime:.3f} minutes")
+    else:
+        print(f"Finished in time: {runtime:.3f} seconds")
+
+
+def gll_2_gll_layered_multi(
+    from_gll,
+    to_gll,
+    layers="nocore",
+    nelem_to_search=20,
+    parameters="all",
+    threads=None,
+):
+
+    start = time.time()
+    from multi_mesh.components.interpolator import gll_2_gll_layered_multi
+
+    gll_2_gll_layered_multi(
+        from_gll=from_gll,
+        to_gll=to_gll,
+        layers=layers,
+        parameters=parameters,
+        nelem_to_search=nelem_to_search,
+        threads=threads,
+    )
+
+    end = time.time()
+    runtime = end - start
+
+    if runtime >= 60:
+        runtime = runtime / 60
+        print(f"Finished in time: {runtime:.3f} minutes")
+    else:
+        print(f"Finished in time: {runtime:.3f} seconds")
+
+
+def gll_2_gll_layered_multiprocessing(
+    from_gll, to_gll, layers="nocore", nelem_to_search=20, parameters="all"
+):
+
+    from multi_mesh.components.interpolator import (
+        interpolate_to_points_layered,
+    )
+
+    start = time.time()
+    interpolate_to_points_layered(
+        from_mesh=from_gll,
+        to_mesh=to_gll,
+        parameters=parameters,
+        layers=layers,
+        # make_spherical=False,
+        nelem_to_search=20,
+    )
+    end = time.time()
+    runtime = end - start
+
+    if runtime >= 60:
+        runtime = runtime / 60
         print(f"Finished in time: {runtime} minutes")
     else:
         print(f"Finished in time: {runtime} seconds")
@@ -357,7 +416,7 @@ def plot_depth_slice(
     cmap="chroma",
     parameter_to_plot: str = "VSV",
     figsize: Tuple[int, int] = (15, 8),
-    projection: ccrs = ccrs.Mollweide(),
+    # projection: ccrs = ccrs.Mollweide(),
     coastlines: bool = True,
     borders: bool = False,
     stock_img: bool = False,
@@ -425,7 +484,7 @@ def plot_depth_slice(
         cmap=cmap,
         parameter_to_plot=parameter_to_plot,
         figsize=figsize,
-        projection=projection,
+        projection="Mollweide",
         coastlines=coastlines,
         borders=borders,
         stock_img=stock_img,
