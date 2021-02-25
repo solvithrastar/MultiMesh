@@ -302,27 +302,23 @@ def create_projection(
 
 
 def plot_cross_section(
-    mesh: Union[str, UnstructuredMesh],
-    ref_mesh: Union[str, UnstructuredMesh],
-    point_1_lat: float = -20,
-    point_1_lng: float = 30,
-    point_2_lat: float = 20,
-    point_2_lng: float = 60,
-    max_depth_in_km: float = 2800,
-    nrads: int = 201,
-    npoints: int = 301,
-    filename: str = "cross_section.pdf",
-    cmap="fusion",
-    reverse: bool = True,
-    clim: Tuple[float, float] = (-5, 5),
-    param_to_interp: str = "VSV",
-    discontinuities_to_plot: list = [410, 660, 1000],
-):
+        mesh: Union[str, UnstructuredMesh],
+        point_1_lat: float = -20,
+        point_1_lng: float = 30,
+        point_2_lat: float = 20,
+        point_2_lng: float = 60,
+        max_depth_in_km: float = 2800,
+        nrads: int = 201,
+        npoints: int = 301,
+        filename: str = "cross_section.pdf",
+        cmap = "fusion",
+        reverse: bool = True,
+        clim: Tuple[float, float] = (-5, 5),
+        param_to_interp: str = "VSV",
+        discontinuities_to_plot: list = [410, 660, 1000]):
     """
     Plots a cross section through the globe between two specified points.
-
     :param mesh: salvus mesh object or string
-    :param ref_mesh: salvus mesh object or string to reference the velocities
     :param point_1_lat: Point 1 Latitude
     :param point_1_lng: Point 1 Longitude
     :param point_2_lat: Point 2 Latitude
@@ -338,115 +334,94 @@ def plot_cross_section(
     :param discontinuities_to_plot: list of discontinuities to plot, pass an
     empty list to plot nothing.
     """
-
     # change threshold
     class LowerOrthographic(ccrs.Orthographic):
         @property
         def threshold(self):
             return 1e3
-
+    class NearSidePerspective(ccrs.NearsidePerspective):
+        @property
+        def threshold(self):
+            return 1e3
     if isinstance(mesh, str):
         mesh = UnstructuredMesh.from_h5(mesh)
-    if isinstance(ref_mesh, str):
-        ref_mesh = UnstructuredMesh.from_h5(ref_mesh)
-
     if isinstance(cmap, str):
         cmap = _get_colormap(cmap, reverse)
-
     r_earth = 6371000
     rads = np.linspace(r_earth - max_depth_in_km * 1000, r_earth, nrads)
-
     # Generate interpolation coordinates
-    a = greatcircle_points(
-        point_1_lat, point_1_lng, point_2_lat, point_2_lng, npts=npoints
-    )
+    a = greatcircle_points(point_1_lat, point_1_lng, point_2_lat, point_2_lng,
+                           npts=npoints)
     lats, lons = a.T
-
     # convert to spherical lat
     lats_spherical = np.zeros_like(lats)
     for i in range(len(lats)):
         lats_spherical[i] = elliptic_to_geocentric_latitude(lats[i])
-
     lats = lat2colat(lats_spherical)
     all_colats, _ = np.meshgrid(lats, rads)
     all_lons, all_rads = np.meshgrid(lons, rads)
-    x, y, z = sph2cart(
-        np.deg2rad(all_colats.flatten()),
-        np.deg2rad(all_lons.flatten()),
-        all_rads.ravel(),
-    )
+    x, y, z = sph2cart(np.deg2rad(all_colats.flatten()),
+                       np.deg2rad(all_lons.flatten()), all_rads.ravel())
     points = np.array((x, y, z)).T
-
     # Interpolate data
-    data = interpolate_to_points(
-        mesh,
-        points=points,
-        make_spherical=True,
-        params_to_interp=[param_to_interp],
-    )
-    ref_data = interpolate_to_points(
-        mesh=ref_mesh,
-        points=points,
-        make_spherical=True,
-        params_to_interp=[param_to_interp],
-    )
-    data = (data - ref_data) / ref_data * 100.0
+    data = interpolate_to_points(mesh, points=points, make_spherical=True,
+                                      params_to_interp=[param_to_interp])
     data = data.reshape(nrads, npoints)
-
+    # # average in layers
+    # for radii in range(nrads):
+    #     data[radii, :] = (data[radii, :] - np.mean(data[radii, :])) / np.mean(data[radii, :])
     # Generate 2D grid, data is plotted on a perfect sphere
-    degrees = locations2degrees(
-        point_1_lat, point_1_lng, point_2_lat, point_2_lng
-    )
+    degrees = locations2degrees(point_1_lat, point_1_lng, point_2_lat,
+                                point_2_lng)
     all_degrees = np.linspace(-degrees / 2, degrees / 2, npoints)
     y = np.sin(np.deg2rad(90 - all_degrees))
     x = np.cos(np.deg2rad(90 - all_degrees))
     all_x = np.zeros((npoints, len(rads)))
     all_y = np.zeros((npoints, len(rads)))
-
     for i in range(len(rads)):
         all_x[:, i] = x * rads[i] / 1000
         all_y[:, i] = y * rads[i] / 1000
-
     fig = plt.figure(dpi=300)
-    spec = gridspec.GridSpec(ncols=2, nrows=1, width_ratios=[1, 3])
-
+    spec = gridspec.GridSpec(ncols=2, nrows=1,
+                             width_ratios=[1, 3])
     mid_idx = int(len(lats) / 2)
+    quart_idx = int(len(lats) / 4)
+    three_quart_idx = int(3 * len(lats) / 4)
     start_lat = 90 - lats[0]
     end_lat = 90 - lats[-1]
     start_lng = lons[0]
     end_lng = lons[-1]
     mid_lat = 90 - lats[mid_idx]
     mid_lng = lons[mid_idx]
-
+    quart_lat = 90 - lats[quart_idx]
+    quart_lng = lons[quart_idx]
+    three_quart_lat = 90 - lats[three_quart_idx]
+    three_quart_lng = lons[three_quart_idx]
     # Plot projection
-    ax = fig.add_subplot(
-        spec[0],
-        projection=LowerOrthographic(
-            central_latitude=mid_lat, central_longitude=mid_lng
-        ),
-    )
-
+    ax = fig.add_subplot(spec[0],
+                         projection=LowerOrthographic(
+                             central_latitude=mid_lat,
+                             central_longitude=mid_lng),
+                         )
+    # ax = fig.add_subplot(spec[0],
+    #                      projection=NearSidePerspective(
+    #                          central_latitude=mid_lat,
+    #                          central_longitude=mid_lng, satellite_height=580000),
+    #                      )
     ax.set_global()
     ax.stock_img()
     ax.coastlines()
     ax.gridlines()
-
     # Plot great circle, start, mid and endpoint
-    plt.plot(
-        [point_1_lng, point_2_lng],
-        [point_1_lat, point_2_lat],
-        color="red",
-        transform=ccrs.Geodetic(),
-    )
-    # ccrs.Geodetic()
+    plt.plot([point_1_lng, point_2_lng], [point_1_lat, point_2_lat],
+             color='red', transform=ccrs.Geodetic())
     plt.plot(start_lng, start_lat, "bo", transform=ccrs.Geodetic())
-    plt.plot(mid_lng, mid_lat, "go", transform=ccrs.Geodetic())
+    plt.plot(mid_lng, mid_lat, "go", transform=ccrs.PlateCarree())
     plt.plot(end_lng, end_lat, "ro", transform=ccrs.Geodetic())
-
     # Plot cross section
     ax = fig.add_subplot(spec[1])
-    plt.pcolormesh(all_x, all_y, data.T, cmap=cmap, shading="auto")
-
+    plt.pcolormesh(all_x, all_y, data.T, cmap=cmap,
+                         shading="auto")
     # Plot dots on cross section
     left_x = all_x[0, -1]
     left_y = all_y[0, -1]
@@ -457,23 +432,16 @@ def plot_cross_section(
     plt.plot(left_x, left_y, "bo")
     plt.plot(mid_x, mid_y, "go")
     plt.plot(right_x, right_y, "ro")
-
     plt.colorbar(ax=ax, shrink=0.4)  # , pad=0.02)
     # cbar.set_label('Perturbation to 1D dv/v [%]')
     # fig.colorbar(pcm, ax=ax,position="bottom", shrink=0.4)#, pad=0.02))
     plt.clim(clim[0], clim[1])
-
     # Plot discontinuities
     for discontinuity in discontinuities_to_plot:
-        plt.plot(
-            all_x[:, -1] * (6371 - discontinuity) / 6371,
-            all_y[:, -1] * (6371 - discontinuity) / 6371,
-            "--",
-            color="black",
-            linewidth=0.5,
-        )
-
-    ax.axis("off")
+        plt.plot(all_x[:, -1] * (6371 - discontinuity) / 6371,
+                 all_y[:, -1] * (6371 - discontinuity) / 6371, "--",
+                 color="black", linewidth=0.5)
+    ax.axis('off')
     ax.axis("equal")
     plt.tight_layout()
     fig.savefig(filename)

@@ -12,11 +12,11 @@ import sys
 import salvus.fem
 import os
 from tqdm import tqdm
-from numba import jit
-import xarray as xr
-from typing import Dict, List
+from typing import Dict, List, Union
 from collections import defaultdict
 import multiprocessing
+from multi_mesh.components.salvus_mesh_reader import SalvusMesh
+import pathlib
 
 
 # Buffer the salvus_fem functions, so accessing becomes much faster
@@ -302,13 +302,13 @@ def gll_2_exodus(
 
 
 def gll_2_gll_layered(
-    from_gll,
-    to_gll,
-    layers,
-    nelem_to_search=20,
-    parameters="ISO",
-    gradient=False,
-    stored_array=None,
+    from_gll: Union[str, pathlib.Path],
+    to_gll: Union[str, pathlib.Path],
+    layers: Union[str, List[int]],
+    nelem_to_search: int = 20,
+    parameters: Union[str, List[str]] = "ISO",
+    stored_array: Union[str, pathlib.Path] = None,
+    make_spherical: bool = False,
 ):
     """
     Interpolate parameters between two gll models.
@@ -321,26 +321,28 @@ def gll_2_gll_layered(
     all the parameters from the from_gll mesh.
 
     :param from_gll: path to gll mesh to interpolate from
+    :type from_gll: Union[str, pathlib.Path]
     :param to_gll: path to gll mesh to interpolate to
-    :param dimensions: dimension of meshes.
-    :param nelem_to_search: amount of elements to check
+    :type to_gll: Union[str, pathlib.Path]
+    :param nelem_to_search: amount of elements to check, defaults to 20
+    :type nelem_to_search: int, optional
     :param parameters: Parameters to be interpolated, possible to pass, "ISO",
-    "TTI" or a list of parameters.
-    :param gradient: If this is a gradient to be added to another gradient,
-    only put true if you want to add on top of a currently existing gradient
+        "TTI" or a list of parameters.
+    :type parameters: Union[str, List[str]]
     :param stored_array: If you want to store the array for future
-    interpolations. If the array exists in that path it will be loaded. Store
-    elements under elements.npy and coeffs under coeffs.npy
+        interpolations. If the array exists in that path it will be loaded.
+        Store elements under elements.npy and coeffs under coeffs.npy
+    :type stored_array: Union[str, pathlib.Path], optional
+    :param make_spherical: if mesh is non-spherical, this is recommended,
+        defaults to False
+    :type make_spherical: bool, optional
     """
-    # from salvus.mesh.unstructured_mesh import UnstructuredMesh
-    from multi_mesh.components.salvus_mesh_reader import SalvusMesh
 
-    # Now I want to do this in a more structured layered approach. I only interpolate
-    # from the relevant layer to the relevant layer.
-    # This needs a bit of thinking but it's doable
     print("Initialization stage")
     print(f"Stored array: {stored_array}")
     original_mesh = SalvusMesh(from_gll, fast_mode=False)
+    if make_spherical:
+        map_to_sphere(original_mesh)
     original_mask, layers = utils.create_layer_mask(
         mesh=original_mesh, layers=layers
     )
@@ -351,6 +353,8 @@ def gll_2_gll_layered(
     dimensions = 3
 
     new_mesh = SalvusMesh(to_gll, fast_mode=False)
+    if make_spherical:
+        map_to_sphere(new_mesh)
     # Stored array stuff here
     loop = True
     if stored_array is not None and os.path.exists(
@@ -462,28 +466,32 @@ def gll_2_gll_layered(
 
 
 def gll_2_gll_layered_multi(
-    from_gll,
-    to_gll,
-    layers,
-    nelem_to_search=20,
-    parameters="ISO",
+    from_gll: Union[str, pathlib.Path],
+    to_gll: Union[str, pathlib.Path],
+    layers: Union[List[int], str],
+    nelem_to_search: int = 20,
+    parameters: Union[List[str], str] = "all",
     threads: int = None,
+    make_spherical: bool = False,
 ):
     """
     Interpolate between two meshes paralellizing over the layers
 
-    :param from_gll: [description]
-    :type from_gll: [type]
-    :param to_gll: [description]
-    :type to_gll: [type]
-    :param layers: [description]
-    :type layers: [type]
-    :param nelem_to_search: [description], defaults to 20
+    :param from_gll: Path to a mesh to interpolate from
+    :type from_gll: Union[str, pathlib.Path]
+    :param to_gll: Path to a mesh to interpolate onto
+    :type to_gll: Union[str, pathlib.Path]
+    :param layers: Layers to interpolate.
+    :type layers: Union[List[int], str]
+    :param nelem_to_search: number of elements to search for, defaults to 20
     :type nelem_to_search: int, optional
-    :param parameters: parameters to interpolate, defaults to "ISO"
-    :type parameters: str, optional
+    :param parameters: parameters to interpolate, defaults to "all"
+    :type parameters: Union[List[str], str], optional
     :param threads: Number of threads, defaults to "all"
     :type threads: int, optional
+    :param make_spherical: If meshes are not spherical, this is recommended,
+        defaults to False
+    :type make_spherical: bool, optional
     """
 
     # from salvus.mesh.unstructured_mesh import UnstructuredMesh
@@ -493,12 +501,11 @@ def gll_2_gll_layered_multi(
     elements = manager.dict()
     coeffs = manager.dict()
 
-    # Now I want to do this in a more structured layered approach. I only interpolate
-    # from the relevant layer to the relevant layer.
-    # This needs a bit of thinking but it's doable
     print("Initialization stage")
     # print(f"Stored array: {stored_array}")
     original_mesh = SalvusMesh(from_gll, fast_mode=False)
+    if make_spherical:
+        map_to_sphere(original_mesh)
     original_mask, layers = utils.create_layer_mask(
         mesh=original_mesh, layers=layers
     )
@@ -506,6 +513,8 @@ def gll_2_gll_layered_multi(
         parameters = list(original_mesh.element_nodal_fields.keys())
     dimensions = 3
     new_mesh = SalvusMesh(to_gll, fast_mode=False)
+    if make_spherical:
+        map_to_sphere(new_mesh)
 
     unique_new_points, mask, layers = utils.get_unique_points(
         points=new_mesh, mesh=True, layers=layers
@@ -1037,18 +1046,22 @@ def map_to_ellipse(base_mesh, mesh):
 
 
 def map_to_sphere(mesh):
-    """Takes a salvus mesh and converts it to a sphere.
+    """
+    Takes a salvus mesh and converts it to a sphere.
     Acts on the passed object
     """
-
-    _, i = np.unique(mesh.connectivity, return_index=True)
-    rad_1D = mesh.element_nodal_fields["z_node_1D"].flatten()[i]
+    if isinstance(mesh, salvus.mesh.unstructured_mesh.UnstructuredMesh):
+        _, i = np.unique(mesh.connectivity, return_index=True)
+        rad_1D = mesh.element_nodal_fields["z_node_1D"].flatten()[i]
+    else:
+        rad_1D = mesh.element_nodal_fields["z_node_1D"]
 
     r_earth = 6371000
     x, y, z = mesh.points.T
     r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
 
     # Conert all points that do not lie right in the core
+    # I think this should work for the SalvusMesh too
     x[r > 0] = x[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
     y[r > 0] = y[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
     z[r > 0] = z[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
@@ -1227,7 +1240,6 @@ def get_coefficients(a, b, c, ref_coord, dimension):
 
     if dimension == 3:
         if a == 4:
-            # return salvus_fem.tensor_gll.GetInterpolationCoefficients(4, 4, 4, pnt=ref_coord)
             return GetInterpolationCoefficients3D_order_4(ref_coord)
         elif a == 2:
             return GetInterpolationCoefficients3D_order_2(ref_coord)
@@ -1261,8 +1273,6 @@ def inverse_transform(point, gll_points, dimension):
 
     if dimension == 3:
         if len(gll_points) == 125:
-            # return InverseCoordinateTransformWrapper3D_4(pnt=point, ctrlNodes=gll_points)
-            # print(f"gll_points: {gll_points.shape}")
             return salvus.fem.hypercube.InverseCoordinateTransformWrapper(
                 n=4, d=3, pnt=point, ctrlNodes=gll_points
             )
@@ -1340,9 +1350,6 @@ def _check_if_inside_element(
     #         " Maybe you should add some tolerance."
     #         " Will return the best searched element"
     #     )
-    # I need something here, maybe just put to coeffs to zero as this
-    # mostly happens for the gradients.
-    # Then I would have to smooth on inversion grid though.
 
     if np.any(inside):
         ind = np.where(inside)
@@ -1368,15 +1375,12 @@ def _check_if_inside_element(
             raise ValueError("Can't find an appropriate element.")
         ref_coord = np.array([0.645, -0.5, 0.22])
     if np.any(np.abs(ref_coord) >= 1.02):
+        # Assign a random coordinate in best fitting element
         ref_coord = np.array([0.645, -0.5, 0.22])
         return -1, np.zeros(3)
     return element, ref_coord
 
 
-# from numba import jit
-
-
-# @jit(nopython=True, parallel=True)
 def fill_value_array(
     new_coordinates: Dict[str, np.ndarray],
     nearest_elements: Dict[str, np.ndarray],

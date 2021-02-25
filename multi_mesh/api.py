@@ -1,52 +1,8 @@
-# from multi_mesh.helpers import load_lib
-# from multi_mesh.io.exodus import Exodus
-from multi_mesh import utils
-from pykdtree.kdtree import KDTree
-import h5py
-import sys
+
 import time
 import numpy as np
-import warnings
-from salvus.mesh.unstructured_mesh import UnstructuredMesh
-from typing import Union, Tuple
-
-# import cartopy.crs as ccrs
-
-import salvus.fem
-
-# Buffer the salvus_fem functions, so accessing becomes much faster
-for name, func in salvus.fem._fcts:
-    # if name == "__GetInterpolationCoefficients__int_n0_1__int_n1_1__int_n2_0__Matrix_Derive" \
-    #            "dA_Eigen::Matrix<double, 2, 1>__Matrix_DerivedB_Eigen::Matrix<double, 4, 1>":
-    #     GetInterpolationCoefficients3D = func
-    if (
-        name
-        == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_4__Matrix_Derive"
-        "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 125, 1>"
-    ):
-        GetInterpolationCoefficients3D_order_4 = func
-    if (
-        name
-        == "__GetInterpolationCoefficients__int_n0_2__int_n1_2__int_n2_2__Matrix_Derive"
-        "dA_Eigen::Matrix<double, 3, 1>__Matrix_DerivedB_Eigen::Matrix<double, 27, 1>"
-    ):
-        GetInterpolationCoefficients3D_order_2 = func
-    if name == "__InverseCoordinateTransformWrapper__int_n_4__int_d_3":
-        InverseCoordinateTransformWrapper3D_4 = func
-    if name == "__InverseCoordinateTransformWrapper__int_n_2__int_d_3":
-        InverseCoordinateTransformWrapper3D_2 = func
-    if (
-        name
-        == "__GetInterpolationCoefficients__int_n0_4__int_n1_4__int_n2_0__Matrix_Derive"
-        "dA_Eigen::Matrix<double, 2, 1>__Matrix_DerivedB_Eigen::Matrix<double, 25, 1>"
-    ):
-        GetInterpolationCoefficients2D = func
-    if name == "__InverseCoordinateTransformWrapper__int_n_4__int_d_2":
-        InverseCoordinateTransformWrapper2D = func
-    if name == "__CheckHullWrapper__int_n_4__int_d_3":
-        CheckHull = func
-
-
+from typing import Union, Tuple, List
+import pathlib
 """
 In here we have many interpolation routines. Currently there is quite a bit of
 code repetition since most of this was done to solve a specific application
@@ -74,7 +30,8 @@ def query_model(
     :type nelem_to_search: int, optional
     :param model_path: Where are parameters stored?, defaults to "MODEL/data"
     :type model_path: str, optional
-    :param coordinates_path: Where are coordinates stored?, defaults to "MODEL/coordinates"
+    :param coordinates_path: Where are coordinates stored?, defaults to 
+        "MODEL/coordinates"
     :type coordinates_path: str, optional
     :return: An array of parameters
     :rtype: np.array
@@ -112,13 +69,15 @@ def exodus_2_gll(
     coordinates_path="MODEL/coordinates",
 ):
     """
-    Interpolate parameters between exodus file and hdf5 gll file. Only works in 3 dimensions.
+    Interpolate parameters between exodus file and hdf5 gll file. 
+        Only works in 3 dimensions.
     :param mesh: The exodus file
     :param gll_model: The gll file
     :param gll_order: The order of the gll polynomials
     :param dimensions: How many spatial dimensions in meshes
     :param nelem_to_search: Amount of closest elements to consider
-    :param parameters: Parameters to be interolated, possible to pass, "ISO", "TTI" or a list of parameters.
+    :param parameters: Parameters to be interolated, possible to pass, 
+        "ISO", "TTI" or a list of parameters.
     """
     start = time.time()
     from multi_mesh.components.interpolator import exodus_2_gll
@@ -161,7 +120,8 @@ def gll_2_gll(
     :param from_gll: path to gll mesh to interpolate from
     :param to_gll: path to gll mesh to interpolate to
     :param nelem_to_search: amount of elements to check
-    :param parameters: Parameters to be interpolated, possible to pass, "ISO", "TTI" or a list of parameters.
+    :param parameters: Parameters to be interpolated, possible to pass, "ISO",
+        "TTI" or a list of parameters.
     :return: gll_mesh with new model on it
     :param gradient: If this is a gradient to be added to another gradient,
     only put true if you want to add on top of a currently existing gradient.
@@ -196,13 +156,41 @@ def gll_2_gll(
 
 
 def gll_2_gll_layered(
-    from_gll,
-    to_gll,
-    layers="nocore",
-    nelem_to_search=20,
-    parameters="all",
-    stored_array=None,
+    from_gll: Union[str, pathlib.Path],
+    to_gll: Union[str, pathlib.Path],
+    layers: Union[str, List[int]],
+    nelem_to_search: int = 20,
+    parameters: Union[str, List[str]] = "ISO",
+    stored_array: Union[str, pathlib.Path] = None,
+    make_spherical: bool = False,
 ):
+    """
+    Interpolate parameters between two gll models.
+    It loads from_gll to memory, looks at the points of the to_gll and
+    assembles a list of unique points which it interpolates onto.
+    It then reconstructs the point values based on the initial to_gll points
+    and saves it to file.
+    Currently not stable if the interpolated parameters are not the same as
+    the parameters on the mesh to be interpolated from. Recommend interpolating
+    all the parameters from the from_gll mesh.
+
+    :param from_gll: path to gll mesh to interpolate from
+    :type from_gll: Union[str, pathlib.Path]
+    :param to_gll: path to gll mesh to interpolate to
+    :type to_gll: Union[str, pathlib.Path]
+    :param nelem_to_search: amount of elements to check, defaults to 20
+    :type nelem_to_search: int, optional
+    :param parameters: Parameters to be interpolated, possible to pass, "ISO",
+        "TTI" or a list of parameters.
+    :type parameters: Union[str, List[str]]
+    :param stored_array: If you want to store the array for future
+        interpolations. If the array exists in that path it will be loaded.
+        Store elements under elements.npy and coeffs under coeffs.npy
+    :type stored_array: Union[str, pathlib.Path], optional
+    :param make_spherical: if mesh is non-spherical, this is recommended,
+        defaults to False
+    :type make_spherical: bool, optional
+    """
 
     start = time.time()
     from multi_mesh.components.interpolator import gll_2_gll_layered
@@ -214,6 +202,7 @@ def gll_2_gll_layered(
         parameters=parameters,
         nelem_to_search=nelem_to_search,
         stored_array=stored_array,
+        make_spherical=make_spherical,
     )
 
     end = time.time()
@@ -227,13 +216,34 @@ def gll_2_gll_layered(
 
 
 def gll_2_gll_layered_multi(
-    from_gll,
-    to_gll,
-    layers="nocore",
-    nelem_to_search=20,
-    parameters="all",
-    threads=None,
+    from_gll: Union[str, pathlib.Path],
+    to_gll: Union[str, pathlib.Path],
+    layers: Union[List[int], str] = "nocore",
+    nelem_to_search: int = 20,
+    parameters: Union[List[str], str] = "all",
+    threads: int = None,
+    make_spherical: bool = False,
 ):
+    """
+    Same function as gll_2_gll_layered except parallel
+    Interpolate between two meshes paralellizing over the layers
+
+    :param from_gll: Path to a mesh to interpolate from
+    :type from_gll: Union[str, pathlib.Path]
+    :param to_gll: Path to a mesh to interpolate onto
+    :type to_gll: Union[str, pathlib.Path]
+    :param layers: Layers to interpolate. Defaults to "nocore"
+    :type layers: Union[List[int], str], optional
+    :param nelem_to_search: number of elements to search for, defaults to 20
+    :type nelem_to_search: int, optional
+    :param parameters: parameters to interpolate, defaults to "all"
+    :type parameters: Union[List[str], str], optional
+    :param threads: Number of threads, defaults to "all"
+    :type threads: int, optional
+    :param make_spherical: If meshes are not spherical, this is recommended,
+        defaults to False
+    :type make_spherical: bool, optional
+    """
 
     start = time.time()
     from multi_mesh.components.interpolator import gll_2_gll_layered_multi
@@ -245,6 +255,7 @@ def gll_2_gll_layered_multi(
         parameters=parameters,
         nelem_to_search=nelem_to_search,
         threads=threads,
+        make_spherical=make_spherical,
     )
 
     end = time.time()
@@ -255,33 +266,6 @@ def gll_2_gll_layered_multi(
         print(f"Finished in time: {runtime:.3f} minutes")
     else:
         print(f"Finished in time: {runtime:.3f} seconds")
-
-
-def gll_2_gll_layered_multiprocessing(
-    from_gll, to_gll, layers="nocore", nelem_to_search=20, parameters="all"
-):
-
-    from multi_mesh.components.interpolator import (
-        interpolate_to_points_layered,
-    )
-
-    start = time.time()
-    interpolate_to_points_layered(
-        from_mesh=from_gll,
-        to_mesh=to_gll,
-        parameters=parameters,
-        layers=layers,
-        # make_spherical=False,
-        nelem_to_search=20,
-    )
-    end = time.time()
-    runtime = end - start
-
-    if runtime >= 60:
-        runtime = runtime / 60
-        print(f"Finished in time: {runtime} minutes")
-    else:
-        print(f"Finished in time: {runtime} seconds")
 
 
 def gll_2_exodus(
@@ -496,6 +480,59 @@ def plot_depth_slice(
         limits=limits,
     )
 
+def plot_cross_section(
+    mesh: Union[str, UnstructuredMesh],
+    point_1_lat: float = -20,
+    point_1_lng: float = 30,
+    point_2_lat: float = 20,
+    point_2_lng: float = 60,
+    max_depth_in_km: float = 2800,
+    nrads: int = 201,
+    npoints: int = 301,
+    filename: str = "cross_section.pdf",
+    cmap = "fusion",
+    reverse: bool = True,
+    clim: Tuple[float, float] = (-5, 5),
+    param_to_interp: str = "VSV",
+    discontinuities_to_plot: list = [410, 660, 1000]
+    ):
+    """
+    Plots a cross section through the globe between two specified points.
+    :param mesh: salvus mesh object or string
+    :param point_1_lat: Point 1 Latitude
+    :param point_1_lng: Point 1 Longitude
+    :param point_2_lat: Point 2 Latitude
+    :param point_2_lng: Point 2 Longitude
+    :param max_depth_in_km: Maximum depth of the slice in the km
+    :param nrads: Number of points to interpolate in the radial direction
+    :param npoints: Number of points to interpolate along the greatcircle
+    :param filename: name of the file that gets saved
+    :param cmap: Name of the colorbar
+    :param reverse: Reverse color bar True/False
+    :param clim: Colorbar limits. This is a tuple of (min, max)
+    :param param_to_interp: Parameter that you want to plot
+    :param discontinuities_to_plot: list of discontinuities to plot, pass an
+    empty list to plot nothing.
+    """
+
+    from multi_mesh.components.plotter import plot_cross_section
+
+    plot_cross_section(
+        mesh=mesh,
+        point_1_lat=point_1_lat,
+        point_1_lng=point_1_lng,
+        point_2_lat=point_2_lat,
+        point_2_lng=point_2_lng,
+        max_depth_in_km=max_depth_in_km,
+        nrads=nrads,
+        npoints=npoints,
+        filename=filename,
+        cmap=cmap,
+        reverse=reverse,
+        clim=clim,
+        param_to_interp=param_to_interp,
+        discontinuities_to_plot=discontinuities_to_plot,
+    )
 
 def find_good_projection(
     name: str = "default",
