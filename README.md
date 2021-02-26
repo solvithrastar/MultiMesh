@@ -1,3 +1,4 @@
+[![DOI](https://zenodo.org/badge/125088168.svg)](https://zenodo.org/badge/latestdoi/125088168)
 # MultiMesh
 A python library to use when working with multiple meshes and one needs to interpolate parameters between them.
 
