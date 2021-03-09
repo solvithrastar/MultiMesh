@@ -481,7 +481,7 @@ def plot_depth_slice(
     )
 
 def plot_cross_section(
-    mesh: Union[str, UnstructuredMesh],
+    mesh: Union[str, object],
     point_1_lat: float = -20,
     point_1_lng: float = 30,
     point_2_lat: float = 20,

@@ -121,6 +121,7 @@ def plot_depth_slice(
         vmax = limits[1]
         vmin = limits[0]
     fig = plt.figure(figsize=figsize)
+    projection = ccrs.NorthPolarStereo()
     ax = fig.add_subplot(1, 1, 1, projection=projection)
     if stock_img:
         ax.stock_img()
