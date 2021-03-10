@@ -4,11 +4,7 @@ A few functions to help out with specific tasks
 import numpy as np
 import pathlib
 
-from geographiclib import geodesic
-from pyexodus import exodus
-from multi_mesh.io.exodus import Exodus
 import h5py
-import xarray as xr
 from typing import Union, List, Tuple
 import salvus.mesh.unstructured_mesh
 import multi_mesh.components.salvus_mesh_reader as smr
@@ -193,22 +189,6 @@ def pick_parameters(parameters):
 
     return parameters
 
-
-def load_exodus(file: str, find_centroids=True):
-    """
-    Load an exodus file into the Exodus class and potentially find the
-    centroid values. The function returns a KDTree with the centroids.
-    """
-
-    exodus = Exodus(file)
-    if find_centroids:
-        centroids = exodus.get_element_centroid()
-        centroid_tree = KDTree(centroids)
-        return exodus, centroid_tree
-    else:
-        return exodus
-
-
 def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str):
     """
     Load coordinates, data and parameter list from and hdf5 file into memory
@@ -221,143 +201,6 @@ def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str):
         params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
 
     return points, data, params
-
-
-def create_dataset(
-    file: Union[pathlib.Path, str],
-    layers: Union[List[int], str] = "all",
-    parameters: List[str] = ["all"],
-    coords: str = "cartesian",
-) -> xr.Dataset:
-    """
-    Create an xarray dataset with the relevant information from a file
-
-    :param file: Path to a file with a Salvus mesh
-    :type file: Union[pathlib.Path, str]
-    :param layers: If you only want specific layers, specific inputs can also
-        be 'crust', 'mantle', 'core', 'nocore' and 'all', defaults to "all"
-    :type layers: Union[List[int], str], optional
-    :param parameters: parameters to include in dataset, defaults to ["all"]
-    :type parameters: List[str], optional
-    :param coords: What sort of coordinates should we store?, defaults to
-        "cartesian"
-    :type coords: str, optional
-    :return: Returns an xarray dataset
-    :rtype: xarray.Dataset
-    """
-    from salvus.mesh.unstructured_mesh import UnstructuredMesh
-
-    # First we deal with the input variables, especially the layers
-
-    mesh = UnstructuredMesh.from_h5(file)
-    layers, i_should_mask = _assess_layers(mesh=mesh, layers=layers)
-
-    # We apply some masking of the data and store the masking array
-    if i_should_mask:
-        mask = _create_mask(mesh=mesh, layers=layers)
-    else:
-        mask = np.ones_like(mesh.elemental_fields["layers"], dtype=bool)
-
-    # We create and return the xarray dataset
-    return _create_dataset(
-        mesh=mesh, mask=mask, parameters=parameters, coords=coords
-    )
-
-
-def _create_dataset(
-    mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh,
-    mask: np.ndarray,
-    parameters: List[str],
-    coords: str,
-):
-    """
-    Create an xarray dataset with relevant information from mesh
-
-    :param mesh: Salvus UnstructuredMesh object
-    :type mesh: salvus.mesh.unstructured_mesh.UnstructuredMesh
-    :param mask: An array to mask elements out
-    :type mask: numpy.ndarray
-    :param parameters: A list of parameters to use
-    :type parameters: List[str]
-    :param coords: What sort of coordinates should we store?, defaults to
-        "cartesian"
-    :type coords: str, optional
-    """
-    if parameters[0] == "all":
-        parameters = list(mesh.element_nodal_fields.keys())
-        if "radius" in parameters:
-            parameters.remove("radius")
-        if "z_node_1D" in parameters:
-            parameters.remove("z_node_1D")
-
-    # Create dictionary for xarray
-    dat = {}
-    for param in parameters:
-        dat[param] = (
-            ["radius", "colatitude", "longitude"],
-            np.array(
-                [
-                    mesh.element_nodal_fields[param][mask].ravel(),
-                    mesh.element_nodal_fields[param][mask].ravel(),
-                    mesh.element_nodal_fields[param][mask].ravel(),
-                ],
-            ).T,
-        )
-        # If I just repeat this one for three axes this might work
-    if coords == "spherical":
-        r_mesh = mesh.element_nodal_fields["z_node_1D"][mask] * 6371000.0
-        nodes = mesh.get_element_nodes()[mask]
-        x = np.square(nodes[:, :, 0]) + np.square(nodes[:, :, 1])
-        u_mesh = np.arctan2(np.sqrt(x), nodes[:, :, 2])  # latitude
-        v_mesh = np.arctan2(nodes[:, :, 1], nodes[:, :, 0])  # longitude
-        element = np.repeat(
-            np.arange(0, mesh.nelem, dtype=int)[mask], mesh.nodes_per_element
-        )
-        print(f"Element: {element.shape}")
-        print(f"rmesh: {r_mesh.shape}")
-        print(f"u_mesh: {u_mesh.ravel().shape}")
-
-        ds = xr.Dataset(
-            dat,
-            coords={
-                "radius": r_mesh.ravel(),
-                "colatitude": u_mesh.ravel(),
-                "longitude": v_mesh.ravel(),
-                # "point": np.arange(0, mesh.nodes_per_element),
-            },
-        )
-        ds.radius.attrs["units"] = "m"
-        ds.colatitude.attrs["units"] = "deg"
-        ds.longitude.attrs["units"] = "deg"
-    elif coords == "cartesian":
-        ds = xr.Dataset(
-            dat,
-            coords={
-                "x": (
-                    ["element", "point"],
-                    mesh.get_element_nodes()[mask][:, :, 0],
-                ),
-                "y": (
-                    ["element", "point"],
-                    mesh.get_element_nodes()[mask][:, :, 1],
-                ),
-                "z": (
-                    ["element", "point"],
-                    mesh.get_element_nodes()[mask][:, :, 2],
-                ),
-                "element": np.arange(0, mesh.nelem)[mask],
-                "point": np.arange(0, mesh.nodes_per_element),
-            },
-        )
-        ds.x.attrs["units"] = "m"
-        ds.y.attrs["units"] = "m"
-        ds.z.attrs["units"] = "m"
-    else:
-        raise ValueError(f"Coordinate type: {coords} is not supported")
-    gll_order = int(np.round(mesh.nodes_per_element ** (1.0 / 3.0)) - 1.0)
-    ds.attrs["gll_order"] = gll_order
-
-    return ds
 
 
 def _create_mask(
@@ -557,40 +400,6 @@ def latlondepth_to_xyz(latlondepth: np.array):
     z = r * np.cos(colat)
     xyz = np.array([x, y, z]).T
     return xyz
-
-
-def greatcircle_points(
-    point_1_lat: float,
-    point_1_lng: float,
-    point_2_lat: float,
-    point_2_lng: float,
-    npts: int = 101,
-):
-    """
-    Returns a list of points that lie on the great circle of the WGS84 ellipsoid
-
-    :param point_1_lat: Lat pnt 1
-    :param point_1_lng: Lng pnt 1
-    :param point_2_lat: Lat pnt 2
-    :param point_2_lng: Lng pnt 2
-    :param max_npts: Maximum number of points to return, defaults to 3000
-    :type max_npts: int, optional
-    """
-    point = geodesic.Geodesic.WGS84.Inverse(
-        lat1=point_1_lat, lon1=point_1_lng, lat2=point_2_lat, lon2=point_2_lng
-    )
-    line = geodesic.Geodesic.WGS84.Line(
-        point_1_lat, point_1_lng, point["azi1"]
-    )
-
-    if npts <= 3:
-        raise Exception("You should supply at least 3 points")
-
-    points = []
-    for i in range(npts):
-        line_point = line.Position(i * point["s12"] / float(npts))
-        points.append([line_point["lat2"], line_point["lon2"]])
-    return np.array(points)
 
 
 def sph2cart(col, lon, rad):

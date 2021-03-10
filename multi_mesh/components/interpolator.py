@@ -2,18 +2,13 @@
 A collection of functions which perform interpolations between various meshes.
 """
 import numpy as np
-
-# from multi_mesh.helpers import load_lib
-# from multi_mesh.io.exodus import Exodus
 from multi_mesh import utils
 from pykdtree.kdtree import KDTree
 import h5py
-import sys
 import salvus.fem
 import os
 from tqdm import tqdm
 from typing import Dict, List, Union
-from collections import defaultdict
 import multiprocessing
 from multi_mesh.components.salvus_mesh_reader import SalvusMesh
 import pathlib
@@ -141,164 +136,6 @@ def query_model(
     resample_data = original_data[elements]
     values = np.sum(resample_data[:, :, :] * coeffs[:, :, :], axis=2)[:, :]
     return values
-
-
-def exodus_2_gll(
-    mesh,
-    gll_model,
-    gll_order=4,
-    dimensions=3,
-    nelem_to_search=20,
-    parameters="TTI",
-    model_path="MODEL/data",
-    coordinates_path="MODEL/coordinates",
-):
-    """
-    Interpolate parameters between exodus file and hdf5 gll file.
-    Only works in 3 dimensions.
-    :param mesh: The exodus file
-    :param gll_model: The gll file
-    :param gll_order: The order of the gll polynomials
-    :param dimensions: How many spatial dimensions in meshes
-    :param nelem_to_search: Amount of closest elements to consider
-    :param parameters: Parameters to be interolated, possible to pass, "ISO",
-    "TTI" or a list of parameters.
-    """
-
-    lib = load_lib()
-    exodus, centroid_tree = utils.load_exodus(mesh, find_centroids=True)
-
-    gll = h5py.File(gll_model, "r+")
-
-    gll_coords = gll[coordinates_path]
-    npoints = gll_coords.shape[0]
-    gll_points = gll_coords.shape[1]
-
-    nearest_element_indices = np.zeros(
-        shape=[npoints, gll_points, nelem_to_search], dtype=np.int64
-    )
-
-    for i in range(gll_points):
-        _, nearest_element_indices[:, i, :] = centroid_tree.query(
-            gll_coords[:, i, :], k=nelem_to_search
-        )
-
-    nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
-
-    enclosing_elem_node_indices = np.zeros(
-        (gll_points, npoints, 8), dtype=np.int64
-    )
-    weights = np.zeros((gll_points, npoints, 8))
-    permutation = [0, 3, 2, 1, 4, 5, 6, 7]
-    i = np.argsort(permutation)
-
-    # i = np.argsort(permutation)
-    connectivity = np.ascontiguousarray(exodus.connectivity[:, i])
-    exopoints = np.ascontiguousarray(exodus.points)
-    nfailed = 0
-
-    parameters = utils.pick_parameters(parameters)
-    utils.remove_and_create_empty_dataset(
-        gll, parameters, model_path, coordinates_path
-    )
-    param_exodus = np.zeros(
-        shape=(len(parameters), len(exodus.get_nodal_field(parameters[0])))
-    )
-    values = np.zeros(
-        shape=(len(parameters), len(exodus.get_nodal_field(parameters[0])))
-    )
-    for _i, param in enumerate(parameters):
-        param_exodus[_i, :] = exodus.get_nodal_field(param)
-
-    for i in range(gll_points):
-        if (i + 1) % 10 == 0 or i == gll_points - 1 or i == 0:
-            print(f"Trilinear interpolation for gll point: {i+1}/{gll_points}")
-        nfailed += lib.triLinearInterpolator(
-            nelem_to_search,
-            npoints,
-            np.ascontiguousarray(nearest_element_indices[i, :, :]),
-            connectivity,
-            enclosing_elem_node_indices[i, :, :],
-            exopoints,
-            weights[i, :, :],
-            np.ascontiguousarray(gll_coords[:, i, :]),
-        )
-        assert nfailed is 0, f"{nfailed} points could not be interpolated."
-        values = np.sum(
-            param_exodus[:, enclosing_elem_node_indices[i, :, :]]
-            * weights[i, :, :],
-            axis=2,
-        )
-
-        gll[model_path][:, :, i] = values.T
-
-
-def gll_2_exodus(
-    gll_model,
-    exodus_model,
-    gll_order=4,
-    dimensions=3,
-    nelem_to_search=20,
-    parameters="TTI",
-    model_path="MODEL/data",
-    coordinates_path="MODEL/coordinates",
-    gradient=False,
-):
-    """
-    Interpolate parameters from gll file to exodus model. This will mostly be
-    used to interpolate gradients to begin with.
-    :param gll_model: path to gll_model
-    :param exodus_model: path_to_exodus_model
-    :param parameters: Currently not used but will be fixed later
-    """
-    with h5py.File(gll_model, "r") as gll_model:
-        gll_points = np.array(gll_model[coordinates_path][:], dtype=np.float64)
-        gll_data = gll_model[model_path][:]
-        params = (
-            gll_model[model_path].attrs.get("DIMENSION_LABELS")[1].decode()
-        )
-        parameters = params[2:-2].replace(" ", "").split("|")
-
-    centroids = _find_gll_centroids(gll_points, dimensions)
-    print("centroids", np.shape(centroids))
-    # Build a KDTree of the centroids to look for nearest elements
-    print("Building KDTree")
-    centroid_tree = KDTree(centroids)
-
-    print("Read in mesh")
-    exodus = Exodus(exodus_model, mode="a")
-    # Find nearest elements
-    print("Querying the KDTree")
-    print(exodus.points.shape)
-    # if exodus.points.shape[1] == 3:
-    #     exodus.points = exodus.points[:, :-1]
-    _, nearest_element_indices = centroid_tree.query(
-        exodus.points, k=nelem_to_search
-    )
-    npoints = exodus.npoint
-    # parameters = utils.pick_parameters(parameters)
-    values = np.zeros(shape=[npoints, len(parameters)])
-    print(parameters)
-    s = 0
-
-    for point in exodus.points:
-        if s == 0 or (s + 1) % 1000 == 0:
-            print(
-                f"Now I'm looking at point number:"
-                f"{s+1}{len(exodus.points)}"
-            )
-        element, ref_coord = _check_if_inside_element(
-            gll_points, nearest_element_indices[s, :], point, dimensions
-        )
-
-        coeffs = get_coefficients(4, 4, 0, ref_coord, dimensions)
-        values[s, :] = np.sum(gll_data[element, :, :] * coeffs, axis=1)
-        s += 1
-    i = 0
-    for param in parameters:
-        exodus.attach_field(param, np.zeros_like(values[:, i]))
-        exodus.attach_field(param, values[:, i])
-        i += 1
 
 
 def gll_2_gll_layered(
@@ -585,7 +422,7 @@ def gll_2_gll_layered_multi(
         threads = multiprocessing.cpu_count()
     print(f"Solving problem using {threads} threads")
     layer_list = list(unique_new_points.keys())
-    threads = np.min(threads, len(layer_list))
+    threads = min(threads, len(layer_list))
 
     with multiprocessing.Pool(threads) as pool:
         pool.map(_find_interpolation_weights, layer_list)
@@ -1052,19 +889,22 @@ def map_to_sphere(mesh):
     """
     if isinstance(mesh, salvus.mesh.unstructured_mesh.UnstructuredMesh):
         _, i = np.unique(mesh.connectivity, return_index=True)
-        rad_1D = mesh.element_nodal_fields["z_node_1D"].flatten()[i]
+        rad_1D = mesh.element_nodal_fields["z_node_1D"].flatten()[i].T
     else:
-        rad_1D = mesh.element_nodal_fields["z_node_1D"]
+        rad_1D = mesh.element_nodal_fields["z_node_1D"].T
 
     r_earth = 6371000
     x, y, z = mesh.points.T
     r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
-
-    # Conert all points that do not lie right in the core
+    # Correct all points that do not lie right in the core
     # I think this should work for the SalvusMesh too
     x[r > 0] = x[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
     y[r > 0] = y[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
     z[r > 0] = z[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
+
+    # mesh.points[:, :, 0] = x.T
+    # mesh.points[:, :, 1] = y.T
+    # mesh.points[:, :, 2] = z.T
 
 
 def get_element_weights(gll_points, shape_order, centroid_tree, points):
