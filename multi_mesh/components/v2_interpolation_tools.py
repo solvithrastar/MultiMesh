@@ -1,7 +1,7 @@
 import multiprocessing
 import numpy as np
-from multi_mesh.api import inverse_transform
-from multi_mesh.api import get_coefficients
+from multi_mesh.components.interpolator import inverse_transform
+from multi_mesh.components.interpolator import get_coefficients
 from pykdtree.kdtree import KDTree
 from tqdm import tqdm
 
