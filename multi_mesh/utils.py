@@ -217,7 +217,7 @@ def load_hdf5_params_to_memory(gll: str, model: str, coordinates: str):
     with h5py.File(gll, "r") as mesh:
         points = np.array(mesh[coordinates][:], dtype=np.float64)
         data = mesh[model][:]
-        params = mesh[model].attrs.get("DIMENSION_LABELS")[1].decode()
+        params = mesh[model].attrs.get("DIMENSION_LABELS")[1]
         params = params[2:-2].replace(" ", "").replace("grad", "").split("|")
 
     return points, data, params

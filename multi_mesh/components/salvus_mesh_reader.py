@@ -72,7 +72,6 @@ class SalvusMesh(object):
         return (
             self.dataset["MODEL/data"]
             .attrs.get("DIMENSION_LABELS")[1]
-            .decode()
             .replace(" ", "")[1:-1]
             .split("|")
         )
@@ -81,7 +80,6 @@ class SalvusMesh(object):
         return (
             self.dataset["MODEL/element_data"]
             .attrs.get("DIMENSION_LABELS")[1]
-            .decode()
             .replace(" ", "")[1:-1]
             .split("|")
         )
