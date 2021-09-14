@@ -1,8 +1,8 @@
-
 import time
 import numpy as np
 from typing import Union, Tuple, List
 import pathlib
+
 """
 In here we have many interpolation routines. Currently there is quite a bit of
 code repetition since most of this was done to solve a specific application
@@ -480,6 +480,7 @@ def plot_depth_slice(
         limits=limits,
     )
 
+
 def plot_cross_section(
     mesh: Union[str, object],
     point_1_lat: float = -20,
@@ -490,12 +491,12 @@ def plot_cross_section(
     nrads: int = 201,
     npoints: int = 301,
     filename: str = "cross_section.pdf",
-    cmap = "fusion",
+    cmap="fusion",
     reverse: bool = True,
     clim: Tuple[float, float] = (-5, 5),
     param_to_interp: str = "VSV",
-    discontinuities_to_plot: list = [410, 660, 1000]
-    ):
+    discontinuities_to_plot: list = [410, 660, 1000],
+):
     """
     Plots a cross section through the globe between two specified points.
     :param mesh: salvus mesh object or string
@@ -533,6 +534,7 @@ def plot_cross_section(
         param_to_interp=param_to_interp,
         discontinuities_to_plot=discontinuities_to_plot,
     )
+
 
 def find_good_projection(
     name: str = "default",
@@ -584,3 +586,49 @@ def find_good_projection(
         lat_extent=lat_extent,
         lon_extent=lon_extent,
     )
+
+
+def extract_regular_grid(
+    mesh: Union[str, pathlib.Path],
+    parameters: List[str],
+    lat_extent: Tuple[float, float, float],
+    lon_extent: Tuple[float, float, float],
+    rad_extent: Tuple[float, float, float],
+    save_to_netcdf: bool = False,
+    netcdf_path: Union[str, pathlib.Path] = None,
+):
+    """
+    A function to extract a regular grid xarray dataset with info about mesh
+    if save_to_netcdf is False, the dataset object will be returned.
+
+    :param mesh: path to mesh object or mesh itself
+    :type mesh: Union[str, pathlib.Path]
+    :param parameters: List of parameters
+    :type parameters: List[str]
+    :param lat_extent: min_latitude, max_latitude, num_points
+    :type lat_extent: Tuple[float, float, float]
+    :param lon_extent: min_longitude, max_longitude, num_points
+    :type lon_extent: Tuple[float, float, float]
+    :param rad_extent: min_radius, max_radius in meters, num_points
+    :type rad_extent: Tuple[float, float, float]
+    :param save_to_netcdf: If dataset should be saved to a netcdf file, 
+        defaults to False
+    :type save_to_netcdf: bool, optional
+    :param netcdf_path: Where to save the file, only needed when save_to_netcdf
+    :type netcdf_path: Union[str, pathlib.Path], optional
+    """
+    from multi_mesh.components.interpolator import extract_regular_grid
+
+    ds = extract_regular_grid(
+        mesh=mesh,
+        parameters=parameters,
+        lat_extent=lat_extent,
+        lon_extent=lon_extent,
+        rad_extent=rad_extent,
+    )
+
+    if save_to_netcdf:
+        ds.to_netcdf(path=netcdf_path)
+    else:
+        return ds
+
