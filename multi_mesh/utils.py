@@ -633,3 +633,32 @@ def cart2sph(x, y, z):
     c = np.arccos(c)
     l = np.arctan2(y, x)
     return c, l, r
+
+def create_xarray_dataset(lat: np.ndarray, lon: np.ndarray, radius: np.ndarray):
+    """
+    Create a regular grid dataset which can be used to do simple plots.
+    :param lat: array with all the latitude points, regularly spaced
+    :type lat: np.ndarray
+    :param lon: array with all the longitude points, regularly spaced
+    :type lon: np.ndarray
+    :param radius: array with all the radius values, regularly spaced
+    :type radius: np.ndarray
+    """
+
+    # Create dictionary for xarray
+    dat = {}
+
+    ds = xr.Dataset(
+        dat,
+        coords={
+            "radius": lat,
+            "latitude": lon,
+            "longitude": radius,
+        },
+    )
+    ds.radius.attrs["units"] = "m"
+    ds.latitude.attrs["units"] = "deg"
+    ds.longitude.attrs["units"] = "deg"
+
+    return ds
+ 

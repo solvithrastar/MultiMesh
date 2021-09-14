@@ -12,7 +12,7 @@ import sys
 import salvus.fem
 import os
 from tqdm import tqdm
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
 from collections import defaultdict
 import multiprocessing
 from multi_mesh.components.salvus_mesh_reader import SalvusMesh
@@ -58,11 +58,7 @@ for name, func in salvus.fem._fcts:
 
 
 def query_model(
-    coordinates,
-    model,
-    nelem_to_search,
-    model_path,
-    coordinates_path,
+    coordinates, model, nelem_to_search, model_path, coordinates_path,
 ):
     """
     Provide an array of coordinates, returns an array with model parameters
@@ -1505,3 +1501,55 @@ def find_gll_coeffs(
         #     print(ref_coord.type)
 
     return element, coeffs
+
+
+def extract_regular_grid(
+    mesh: Union[
+        str, pathlib.Path, salvus.mesh.unstructured_mesh.UnstructuredMesh
+    ],
+    parameters: List[str],
+    lat_extent: Tuple[float, float, float],
+    lon_extent: Tuple[float, float, float],
+    rad_extent: Tuple[float, float, float],
+):
+    """
+    Salvus meshes live on unregular grids, this is a way to extract a regular
+    grid based on a salvus mesh
+
+    :param mesh: The mesh object or a path to it
+    :type mesh: Union[str, 
+        pathlib.Path, salvus.mesh.unstructured_mesh.UnstructuredMesh]
+    :param parameters: Name of parameters to interpolate
+    :type parameters: List[str]
+    :param lat_extent: min_latitude, max_latitude, num_points
+    :type lat_extent: Tuple[float, float, float]
+    :param lon_extent: min_longitude, max_longitude, num_points
+    :type lon_extent: Tuple[float, float, float]
+    :param rad_extent: min_radius, max_radius in meters, num_points
+    :type rad_extent: Tuple[float, float, float]
+    """
+    from salvus.mesh.unstructured_mesh_utils import (
+        extract_model_to_regular_grid,
+    )
+
+    if isinstance(mesh, (str, pathlib.Path)):
+        from salvus.mesh.unstructured_mesh import UnstructuredMesh as um
+
+        mesh = um.from_h5(mesh)
+
+    lat = np.linspace(
+        start=lat_extent[0], stop=lat_extent[1], num=lat_extent[2]
+    )
+    lon = np.linspace(
+        start=lon_extent[0], stop=lon_extent[1], num=lon_extent[2]
+    )
+    radius = np.linspace(
+        start=rad_extent[0], stop=rad_extent[1], num=rad_extent[2]
+    )
+    ds = utils.create_xarray_dataset(lat=lat, lon=lon, radius=radius)
+
+    ds = extract_model_to_regular_grid(
+        mesh=mesh, ds=ds, pars=parameters, verbose=True,
+    )
+
+    return ds
