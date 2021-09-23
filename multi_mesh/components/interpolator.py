@@ -468,6 +468,7 @@ def gll_2_gll_layered_multi(
     nelem_to_search: int = 20,
     parameters: Union[List[str], str] = "all",
     threads: int = None,
+    stored_array: Union[str, pathlib.Path] = None,
     make_spherical: bool = False,
 ):
     """
@@ -485,6 +486,10 @@ def gll_2_gll_layered_multi(
     :type parameters: Union[List[str], str], optional
     :param threads: Number of threads, defaults to "all"
     :type threads: int, optional
+    :param stored_array: If you want to store the array for future
+        interpolations. If the array exists in that path it will be loaded.
+        Store elements under elements.npy and coeffs under coeffs.npy
+    :type stored_array: Union[str, pathlib.Path], optional
     :param make_spherical: If meshes are not spherical, this is recommended,
         defaults to False
     :type make_spherical: bool, optional
@@ -512,6 +517,15 @@ def gll_2_gll_layered_multi(
     if make_spherical:
         map_to_sphere(new_mesh)
 
+    loop = True
+    if stored_array is not None and os.path.exists(
+        os.path.join(stored_array, "interp_info.h5")
+    ):
+        print("No need for looping, we have the matrices")
+        loop = False
+        dataset = h5py.File(os.path.join(stored_array, "interp_info.h5"), "r")
+        coeffs = dataset["coeffs"]
+        elements = dataset["elements"]
     unique_new_points, mask, layers = utils.get_unique_points(
         points=new_mesh, mesh=True, layers=layers
     )
@@ -577,16 +591,30 @@ def gll_2_gll_layered_multi(
             layer=layer,
         )
 
-    if threads is None:
-        threads = multiprocessing.cpu_count()
-    print(f"Solving problem using {threads} threads")
-    layer_list = list(unique_new_points.keys())
-    threads = np.min(threads, len(layer_list))
+    if loop:
+        if threads is None:
+            threads = multiprocessing.cpu_count()
+        print(f"Solving problem using {threads} threads")
+        layer_list = list(unique_new_points.keys())
+        threads = min(threads, len(layer_list))
 
-    with multiprocessing.Pool(threads) as pool:
-        pool.map(_find_interpolation_weights, layer_list)
-    pool.close()
-    pool.join()
+        with multiprocessing.Pool(threads) as pool:
+            pool.map(_find_interpolation_weights, layer_list)
+        pool.close()
+        pool.join()
+
+        if stored_array is not None:
+            print("Saving interpolation matrices")
+            dataset = h5py.File(
+                os.path.join(stored_array, "interp_info.h5"), "w"
+            )
+            for k, v in coeffs.items():
+                dataset.create_dataset(f"coeffs/{k}", data=v)
+            for k, v in elements.items():
+                dataset.create_dataset(f"elements/{k}", data=v)
+            dataset.close()
+    else:
+        print("No need to loop, we have weights")
 
     for layer in coeffs.keys():
         # num_failed += len(np.where(elements[layer] == -1)[0])
