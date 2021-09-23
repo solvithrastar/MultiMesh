@@ -58,7 +58,11 @@ for name, func in salvus.fem._fcts:
 
 
 def query_model(
-    coordinates, model, nelem_to_search, model_path, coordinates_path,
+    coordinates,
+    model,
+    nelem_to_search,
+    model_path,
+    coordinates_path,
 ):
     """
     Provide an array of coordinates, returns an array with model parameters
@@ -581,7 +585,7 @@ def gll_2_gll_layered_multi(
         threads = multiprocessing.cpu_count()
     print(f"Solving problem using {threads} threads")
     layer_list = list(unique_new_points.keys())
-    threads = np.min(threads, len(layer_list))
+    threads = min(threads, len(layer_list))
 
     with multiprocessing.Pool(threads) as pool:
         pool.map(_find_interpolation_weights, layer_list)
@@ -1050,13 +1054,13 @@ def map_to_sphere(mesh):
         _, i = np.unique(mesh.connectivity, return_index=True)
         rad_1D = mesh.element_nodal_fields["z_node_1D"].flatten()[i]
     else:
-        rad_1D = mesh.element_nodal_fields["z_node_1D"]
+        rad_1D = mesh.element_nodal_fields["z_node_1D"].T
 
     r_earth = 6371000
     x, y, z = mesh.points.T
     r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
 
-    # Conert all points that do not lie right in the core
+    # Convert all points that do not lie right in the core
     # I think this should work for the SalvusMesh too
     x[r > 0] = x[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
     y[r > 0] = y[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
@@ -1517,7 +1521,7 @@ def extract_regular_grid(
     grid based on a salvus mesh
 
     :param mesh: The mesh object or a path to it
-    :type mesh: Union[str, 
+    :type mesh: Union[str,
         pathlib.Path, salvus.mesh.unstructured_mesh.UnstructuredMesh]
     :param parameters: Name of parameters to interpolate
     :type parameters: List[str]
@@ -1549,7 +1553,10 @@ def extract_regular_grid(
     ds = utils.create_xarray_dataset(lat=lat, lon=lon, radius=radius)
 
     ds = extract_model_to_regular_grid(
-        mesh=mesh, ds=ds, pars=parameters, verbose=True,
+        mesh=mesh,
+        ds=ds,
+        pars=parameters,
+        verbose=True,
     )
 
     return ds
