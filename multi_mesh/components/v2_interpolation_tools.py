@@ -83,7 +83,14 @@ def get_element_weights(gll_points, centroid_tree, points):
     """
     global _get_coeffs
     nelem_to_search = 25
-
+    nodes_per_element = np.shape(gll_points)[1]
+    if nodes_per_element == 27:
+        order = 2
+    elif nodes_per_element == 8:
+        order = 1
+    else:
+        import sys
+        sys.exit('Not implemented error')
     def _get_coeffs(point_indices):
         _, nearest_elements = centroid_tree.query(
             points[point_indices], k=nelem_to_search
@@ -113,7 +120,7 @@ def get_element_weights(gll_points, centroid_tree, points):
                 # tolerance of 5%
                 if np.all(np.abs(ref_coord) < 1.05):
                     coeffs = get_coefficients(
-                        2,
+                        order,
                         0,
                         0,
                         np.asfortranarray(ref_coord, dtype=np.float64),
@@ -121,7 +128,7 @@ def get_element_weights(gll_points, centroid_tree, points):
                     )
                     return element, coeffs
             # return weights zero if nothing found
-            return -1, np.zeros(27)
+            return -1, np.zeros(nodes_per_element)
 
         a = np.vectorize(
             check_inside, signature="(),()->(),(n)", otypes=[int, float]
@@ -171,7 +178,6 @@ def interpolate_to_points(mesh, points, params_to_interp,
     function when it is placed in a loop.
     :return: array[nparams_to_interp, npoints]
     """
-
     if make_spherical:
         map_to_sphere(mesh)
 
