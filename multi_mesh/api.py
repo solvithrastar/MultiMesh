@@ -222,6 +222,7 @@ def gll_2_gll_layered_multi(
     nelem_to_search: int = 20,
     parameters: Union[List[str], str] = "all",
     threads: int = None,
+    stored_array: Union[str, pathlib.Path] = None,
     make_spherical: bool = False,
 ):
     """
@@ -240,6 +241,10 @@ def gll_2_gll_layered_multi(
     :type parameters: Union[List[str], str], optional
     :param threads: Number of threads, defaults to "all"
     :type threads: int, optional
+    :param stored_array: If you want to store the array for future
+        interpolations. If the array exists in that path it will be loaded.
+        Store elements under elements.npy and coeffs under coeffs.npy
+    :type stored_array: Union[str, pathlib.Path], optional
     :param make_spherical: If meshes are not spherical, this is recommended,
         defaults to False
     :type make_spherical: bool, optional
