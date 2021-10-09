@@ -591,7 +591,7 @@ def gll_2_gll_layered_multi(
         pool.map(_find_interpolation_weights, layer_list)
     pool.close()
     pool.join()
-
+    # num_failed = 0
     for layer in coeffs.keys():
         # num_failed += len(np.where(elements[layer] == -1)[0])
         elms = elements[layer].astype(int)
@@ -608,7 +608,7 @@ def gll_2_gll_layered_multi(
                 unique_new_points[layer][1]
             ].reshape(new_mesh.element_nodal_fields[param][mask[layer]].shape)
     for _i, param in enumerate(parameters):
-        new_field = np.zeros_like(new_mesh.element_nodal_fields[param])
+        new_field = new_mesh.element_nodal_fields[param]
         for layer in coeffs.keys():
             elms = elements[layer].astype(int)
             values = np.sum(
@@ -1342,7 +1342,7 @@ def _check_if_inside_element(
             if np.any(np.isnan(ref_coord)):
                 continue
 
-            if np.all(np.abs(ref_coord) <= 1.02):
+            if np.all(np.abs(ref_coord) <= 1.04):
                 return element, ref_coord
     # if not ignore_hard_elements:
     #     warnings.warn(
@@ -1374,10 +1374,10 @@ def _check_if_inside_element(
         if not ignore_hard_elements:
             raise ValueError("Can't find an appropriate element.")
         ref_coord = np.array([0.645, -0.5, 0.22])
-    if np.any(np.abs(ref_coord) >= 1.02):
+    if np.any(np.abs(ref_coord) >= 1.04):
         # Assign a random coordinate in best fitting element
         ref_coord = np.array([0.645, -0.5, 0.22])
-        return -1, np.zeros(3)
+        # return -1, np.zeros(3)
     return element, ref_coord
 
 
