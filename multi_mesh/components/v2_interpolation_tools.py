@@ -90,7 +90,9 @@ def get_element_weights(gll_points, centroid_tree, points):
         order = 1
     else:
         import sys
-        sys.exit('Not implemented error')
+
+        sys.exit("Not implemented error")
+
     def _get_coeffs(point_indices):
         _, nearest_elements = centroid_tree.query(
             points[point_indices], k=nelem_to_search
@@ -138,6 +140,7 @@ def get_element_weights(gll_points, centroid_tree, points):
     # Split array in chunks
     num_processes = multiprocessing.cpu_count()
     n = 50 * num_processes
+    n = min(n, len(points))
     task_list = np.array_split(np.arange(len(points)), n)
 
     elems = []
@@ -161,8 +164,9 @@ def get_element_weights(gll_points, centroid_tree, points):
     return elems, coeffs
 
 
-def interpolate_to_points(mesh, points, params_to_interp,
-                          make_spherical=False, centroid_tree=None):
+def interpolate_to_points(
+    mesh, points, params_to_interp, make_spherical=False, centroid_tree=None
+):
 
     """
     Interpolates from a mesh to point cloud.
