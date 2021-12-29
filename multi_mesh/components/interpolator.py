@@ -1542,7 +1542,7 @@ def extract_regular_grid(
     parameters: List[str],
     lat_extent: Tuple[float, float, float],
     lon_extent: Tuple[float, float, float],
-    rad_extent: Tuple[float, float, float],
+    depth_extent: Tuple[float, float, float],
 ):
     """
     Salvus meshes live on unregular grids, this is a way to extract a regular
@@ -1557,8 +1557,8 @@ def extract_regular_grid(
     :type lat_extent: Tuple[float, float, float]
     :param lon_extent: min_longitude, max_longitude, num_points
     :type lon_extent: Tuple[float, float, float]
-    :param rad_extent: min_radius, max_radius in meters, num_points
-    :type rad_extent: Tuple[float, float, float]
+    :param depth_extent: min_depth, max_depth in meters, num_points
+    :type depth_extent: Tuple[float, float, float]
     """
     from salvus.mesh.unstructured_mesh_utils import (
         extract_model_to_regular_grid,
@@ -1575,10 +1575,10 @@ def extract_regular_grid(
     lon = np.linspace(
         start=lon_extent[0], stop=lon_extent[1], num=lon_extent[2]
     )
-    radius = np.linspace(
-        start=rad_extent[0], stop=rad_extent[1], num=rad_extent[2]
+    depth = np.linspace(
+        start=depth_extent[0], stop=depth_extent[1], num=depth_extent[2]
     )
-    ds = utils.create_xarray_dataset(lat=lat, lon=lon, radius=radius)
+    ds = utils.create_xarray_dataset(lat=lat, lon=lon, depth=depth)
 
     ds = extract_model_to_regular_grid(
         mesh=mesh,

@@ -583,7 +583,7 @@ def greatcircle_points(
         point_1_lat, point_1_lng, point["azi1"]
     )
 
-    if npts <= 3:
+    if npts < 3:
         raise Exception("You should supply at least 3 points")
 
     points = []
@@ -635,17 +635,15 @@ def cart2sph(x, y, z):
     return c, l, r
 
 
-def create_xarray_dataset(
-    lat: np.ndarray, lon: np.ndarray, radius: np.ndarray
-):
+def create_xarray_dataset(lat: np.ndarray, lon: np.ndarray, depth: np.ndarray):
     """
     Create a regular grid dataset which can be used to do simple plots.
     :param lat: array with all the latitude points, regularly spaced
     :type lat: np.ndarray
     :param lon: array with all the longitude points, regularly spaced
     :type lon: np.ndarray
-    :param radius: array with all the radius values, regularly spaced
-    :type radius: np.ndarray
+    :param depth: array with all the radius values, regularly spaced
+    :type depth: np.ndarray
     """
 
     # Create dictionary for xarray
@@ -654,12 +652,13 @@ def create_xarray_dataset(
     ds = xr.Dataset(
         dat,
         coords={
-            "radius": radius,
+            "depth": depth,
             "latitude": lat,
             "longitude": lon,
         },
+        attrs={"radius_in_meters": 6371000.0},
     )
-    ds.radius.attrs["units"] = "m"
+    ds.depth.attrs["units"] = "m"
     ds.latitude.attrs["units"] = "deg"
     ds.longitude.attrs["units"] = "deg"
 

@@ -1,6 +1,7 @@
 from typing import Union, Tuple
 import numpy as np
 import cmasher as cmr
+import cmcrameri
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
@@ -196,11 +197,14 @@ def _get_colormap(cmap: str, reverse: bool):
     :param reverse: Should colormap be reversed?
     :type reverse: bool
     """
+    crameri_colormaps = dir(cmcrameri.cm)
     cmash_colormaps = dir(cmr.cm)
     if reverse:
         cmap += "_r"
     if cmap in cmash_colormaps:
         cmap = eval(f"cmr.{cmap}")
+    elif cmap in crameri_colormaps:
+        cmap = eval(f"cmcrameri.cm.{cmap}")
 
     return cmap
 
@@ -303,20 +307,22 @@ def create_projection(
 
 
 def plot_cross_section(
-        mesh: Union[str, UnstructuredMesh],
-        point_1_lat: float = -20,
-        point_1_lng: float = 30,
-        point_2_lat: float = 20,
-        point_2_lng: float = 60,
-        max_depth_in_km: float = 2800,
-        nrads: int = 201,
-        npoints: int = 301,
-        filename: str = "cross_section.pdf",
-        cmap = "fusion",
-        reverse: bool = True,
-        clim: Tuple[float, float] = (-5, 5),
-        param_to_interp: str = "VSV",
-        discontinuities_to_plot: list = [410, 660, 1000]):
+    mesh: Union[str, UnstructuredMesh],
+    point_1_lat: float = -20,
+    point_1_lng: float = 30,
+    point_2_lat: float = 20,
+    point_2_lng: float = 60,
+    max_depth_in_km: float = 2800,
+    min_depth_in_km: float = 0.0,
+    nrads: int = 201,
+    npoints: int = 301,
+    filename: str = "cross_section.pdf",
+    cmap="fusion",
+    reverse: bool = True,
+    clim: Tuple[float, float] = (-5, 5),
+    param_to_interp: str = "VSV",
+    discontinuities_to_plot: list = [410, 660, 1000],
+):
     """
     Plots a cross section through the globe between two specified points.
     :param mesh: salvus mesh object or string
@@ -325,6 +331,7 @@ def plot_cross_section(
     :param point_2_lat: Point 2 Latitude
     :param point_2_lng: Point 2 Longitude
     :param max_depth_in_km: Maximum depth of the slice in the km
+    :param min_depth_in_km: Minimum depth of the slice in the km
     :param nrads: Number of points to interpolate in the radial direction
     :param npoints: Number of points to interpolate along the greatcircle
     :param filename: name of the file that gets saved
@@ -340,19 +347,26 @@ def plot_cross_section(
         @property
         def threshold(self):
             return 1e3
+
     class NearSidePerspective(ccrs.NearsidePerspective):
         @property
         def threshold(self):
             return 1e3
+
     if isinstance(mesh, str):
         mesh = UnstructuredMesh.from_h5(mesh)
     if isinstance(cmap, str):
         cmap = _get_colormap(cmap, reverse)
     r_earth = 6371000
-    rads = np.linspace(r_earth - max_depth_in_km * 1000, r_earth, nrads)
+    rads = np.linspace(
+        r_earth - max_depth_in_km * 1000,
+        r_earth - min_depth_in_km * 1000,
+        nrads,
+    )
     # Generate interpolation coordinates
-    a = greatcircle_points(point_1_lat, point_1_lng, point_2_lat, point_2_lng,
-                           npts=npoints)
+    a = greatcircle_points(
+        point_1_lat, point_1_lng, point_2_lat, point_2_lng, npts=npoints
+    )
     lats, lons = a.T
     # convert to spherical lat
     lats_spherical = np.zeros_like(lats)
@@ -361,19 +375,31 @@ def plot_cross_section(
     lats = lat2colat(lats_spherical)
     all_colats, _ = np.meshgrid(lats, rads)
     all_lons, all_rads = np.meshgrid(lons, rads)
-    x, y, z = sph2cart(np.deg2rad(all_colats.flatten()),
-                       np.deg2rad(all_lons.flatten()), all_rads.ravel())
+    x, y, z = sph2cart(
+        np.deg2rad(all_colats.flatten()),
+        np.deg2rad(all_lons.flatten()),
+        all_rads.ravel(),
+    )
     points = np.array((x, y, z)).T
     # Interpolate data
-    data = interpolate_to_points(mesh, points=points, make_spherical=True,
-                                      params_to_interp=[param_to_interp])
+    data = interpolate_to_points(
+        mesh,
+        points=points,
+        make_spherical=True,
+        params_to_interp=[param_to_interp],
+    )
     data = data.reshape(nrads, npoints)
     # # average in layers
-    # for radii in range(nrads):
-    #     data[radii, :] = (data[radii, :] - np.mean(data[radii, :])) / np.mean(data[radii, :])
+    for radii in range(nrads):
+        data[radii, :] = (
+            (data[radii, :] - np.mean(data[radii, :]))
+            / np.mean(data[radii, :])
+            * 100
+        )
     # Generate 2D grid, data is plotted on a perfect sphere
-    degrees = locations2degrees(point_1_lat, point_1_lng, point_2_lat,
-                                point_2_lng)
+    degrees = locations2degrees(
+        point_1_lat, point_1_lng, point_2_lat, point_2_lng
+    )
     all_degrees = np.linspace(-degrees / 2, degrees / 2, npoints)
     y = np.sin(np.deg2rad(90 - all_degrees))
     x = np.cos(np.deg2rad(90 - all_degrees))
@@ -383,66 +409,94 @@ def plot_cross_section(
         all_x[:, i] = x * rads[i] / 1000
         all_y[:, i] = y * rads[i] / 1000
     fig = plt.figure(dpi=300)
-    spec = gridspec.GridSpec(ncols=2, nrows=1,
-                             width_ratios=[1, 3])
+    # spec = gridspec.GridSpec(ncols=2, nrows=1, width_ratios=[1, 3])
     mid_idx = int(len(lats) / 2)
     quart_idx = int(len(lats) / 4)
     three_quart_idx = int(3 * len(lats) / 4)
-    start_lat = 90 - lats[0]
-    end_lat = 90 - lats[-1]
-    start_lng = lons[0]
-    end_lng = lons[-1]
-    mid_lat = 90 - lats[mid_idx]
-    mid_lng = lons[mid_idx]
-    quart_lat = 90 - lats[quart_idx]
-    quart_lng = lons[quart_idx]
-    three_quart_lat = 90 - lats[three_quart_idx]
-    three_quart_lng = lons[three_quart_idx]
-    # Plot projection
-    ax = fig.add_subplot(spec[0],
-                         projection=LowerOrthographic(
-                             central_latitude=mid_lat,
-                             central_longitude=mid_lng),
-                         )
-    # ax = fig.add_subplot(spec[0],
-    #                      projection=NearSidePerspective(
-    #                          central_latitude=mid_lat,
-    #                          central_longitude=mid_lng, satellite_height=580000),
-    #                      )
-    ax.set_global()
-    ax.stock_img()
-    ax.coastlines()
-    ax.gridlines()
-    # Plot great circle, start, mid and endpoint
-    plt.plot([point_1_lng, point_2_lng], [point_1_lat, point_2_lat],
-             color='red', transform=ccrs.Geodetic())
-    plt.plot(start_lng, start_lat, "bo", transform=ccrs.Geodetic())
-    plt.plot(mid_lng, mid_lat, "go", transform=ccrs.PlateCarree())
-    plt.plot(end_lng, end_lat, "ro", transform=ccrs.Geodetic())
-    # Plot cross section
-    ax = fig.add_subplot(spec[1])
-    plt.pcolormesh(all_x, all_y, data.T, cmap=cmap,
-                         shading="auto")
+    # start_lat = 90 - lats[0]
+    # end_lat = 90 - lats[-1]
+    # start_lng = lons[0]
+    # end_lng = lons[-1]
+    # mid_lat = 90 - lats[mid_idx]
+    # mid_lng = lons[mid_idx]
+    # quart_lat = 90 - lats[quart_idx]
+    # quart_lng = lons[quart_idx]
+    # three_quart_lat = 90 - lats[three_quart_idx]
+    # three_quart_lng = lons[three_quart_idx]
+    # # Plot projection
+    # ax = fig.add_subplot(
+    #     spec[0],
+    #     projection=NearSidePerspective(
+    #         central_latitude=mid_lat, central_longitude=mid_lng
+    #     ),
+    # )
+    # # ax = fig.add_subplot(spec[0],
+    # #                      projection=NearSidePerspective(
+    # #                          central_latitude=mid_lat,
+    # #                          central_longitude=mid_lng, satellite_height=580000),
+    # #                      )
+    # ax.set_global()
+    # ax.stock_img()
+    # ax.coastlines()
+    # ax.gridlines()
+    # # Plot great circle, start, mid and endpoint
+    # plt.plot(
+    #     [point_1_lng, point_2_lng],
+    #     [point_1_lat, point_2_lat],
+    #     color="red",
+    #     transform=ccrs.Geodetic(),
+    # )
+    # plt.plot(start_lng, start_lat, "bo", transform=ccrs.Geodetic())
+    # plt.plot(mid_lng, mid_lat, "go", transform=ccrs.PlateCarree())
+    # plt.plot(end_lng, end_lat, "ro", transform=ccrs.Geodetic())
+    # # Plot cross section
+    # ax = fig.add_subplot(spec[1])
+    plt.pcolormesh(all_x, all_y, data.T, cmap=cmap, shading="auto")
     # Plot dots on cross section
-    left_x = all_x[0, -1]
-    left_y = all_y[0, -1]
+    left_x = all_x[5, -5]
+    left_y = all_y[5, -5]
     mid_x = all_x[mid_idx, -1]
     mid_y = all_y[mid_idx, -1]
-    right_x = all_x[-1, -1]
-    right_y = all_y[-1, -1]
-    plt.plot(left_x, left_y, "bo")
-    plt.plot(mid_x, mid_y, "go")
-    plt.plot(right_x, right_y, "ro")
-    plt.colorbar(ax=ax, shrink=0.4)  # , pad=0.02)
+    right_x = all_x[-5, -5]
+    right_y = all_y[-5, -5]
+    plt.plot(
+        left_x,
+        left_y,
+        "o",
+        markersize=10,
+        markerfacecolor="k",
+        markeredgecolor="r",
+        markeredgewidth=1,
+    )
+    # plt.plot(mid_x, mid_y, "go")
+    # plt.plot(right_x, right_y, "wo", markersize=10)
+    plt.plot(
+        right_x,
+        right_y,
+        "o",
+        markersize=10,
+        markerfacecolor="w",
+        markeredgecolor="r",
+        markeredgewidth=1,
+    )
+    plt.colorbar()  # , pad=0.02)
     # cbar.set_label('Perturbation to 1D dv/v [%]')
     # fig.colorbar(pcm, ax=ax,position="bottom", shrink=0.4)#, pad=0.02))
     plt.clim(clim[0], clim[1])
     # Plot discontinuities
     for discontinuity in discontinuities_to_plot:
-        plt.plot(all_x[:, -1] * (6371 - discontinuity) / 6371,
-                 all_y[:, -1] * (6371 - discontinuity) / 6371, "--",
-                 color="black", linewidth=0.5)
-    ax.axis('off')
-    ax.axis("equal")
+        plt.plot(
+            all_x[:, -1]
+            * (6371 - discontinuity - min_depth_in_km)
+            / (6371 - min_depth_in_km),
+            all_y[:, -1]
+            * (6371 - discontinuity - min_depth_in_km)
+            / (6371 - min_depth_in_km),
+            "--",
+            color="black",
+            linewidth=0.5,
+        )
+    plt.axis("off")
+    # ax.axis("equal")
     plt.tight_layout()
     fig.savefig(filename)

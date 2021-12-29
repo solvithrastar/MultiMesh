@@ -30,7 +30,7 @@ def query_model(
     :type nelem_to_search: int, optional
     :param model_path: Where are parameters stored?, defaults to "MODEL/data"
     :type model_path: str, optional
-    :param coordinates_path: Where are coordinates stored?, defaults to 
+    :param coordinates_path: Where are coordinates stored?, defaults to
         "MODEL/coordinates"
     :type coordinates_path: str, optional
     :return: An array of parameters
@@ -69,14 +69,14 @@ def exodus_2_gll(
     coordinates_path="MODEL/coordinates",
 ):
     """
-    Interpolate parameters between exodus file and hdf5 gll file. 
+    Interpolate parameters between exodus file and hdf5 gll file.
         Only works in 3 dimensions.
     :param mesh: The exodus file
     :param gll_model: The gll file
     :param gll_order: The order of the gll polynomials
     :param dimensions: How many spatial dimensions in meshes
     :param nelem_to_search: Amount of closest elements to consider
-    :param parameters: Parameters to be interolated, possible to pass, 
+    :param parameters: Parameters to be interolated, possible to pass,
         "ISO", "TTI" or a list of parameters.
     """
     start = time.time()
@@ -493,6 +493,7 @@ def plot_cross_section(
     point_2_lat: float = 20,
     point_2_lng: float = 60,
     max_depth_in_km: float = 2800,
+    min_depth_in_km: float = 0.0,
     nrads: int = 201,
     npoints: int = 301,
     filename: str = "cross_section.pdf",
@@ -510,6 +511,7 @@ def plot_cross_section(
     :param point_2_lat: Point 2 Latitude
     :param point_2_lng: Point 2 Longitude
     :param max_depth_in_km: Maximum depth of the slice in the km
+    :param min_depth_in_km: Minimum depth of the slice in the km
     :param nrads: Number of points to interpolate in the radial direction
     :param npoints: Number of points to interpolate along the greatcircle
     :param filename: name of the file that gets saved
@@ -530,6 +532,7 @@ def plot_cross_section(
         point_2_lat=point_2_lat,
         point_2_lng=point_2_lng,
         max_depth_in_km=max_depth_in_km,
+        min_depth_in_km=min_depth_in_km,
         nrads=nrads,
         npoints=npoints,
         filename=filename,
@@ -598,7 +601,7 @@ def extract_regular_grid(
     parameters: List[str],
     lat_extent: Tuple[float, float, float],
     lon_extent: Tuple[float, float, float],
-    rad_extent: Tuple[float, float, float],
+    depth_extent: Tuple[float, float, float],
     save_to_netcdf: bool = False,
     netcdf_path: Union[str, pathlib.Path] = None,
 ):
@@ -614,9 +617,9 @@ def extract_regular_grid(
     :type lat_extent: Tuple[float, float, float]
     :param lon_extent: min_longitude, max_longitude, num_points
     :type lon_extent: Tuple[float, float, float]
-    :param rad_extent: min_radius, max_radius in meters, num_points
-    :type rad_extent: Tuple[float, float, float]
-    :param save_to_netcdf: If dataset should be saved to a netcdf file, 
+    :param depth_extent: min_depth, max_depth in meters, num_points
+    :type depth_extent: Tuple[float, float, float]
+    :param save_to_netcdf: If dataset should be saved to a netcdf file,
         defaults to False
     :type save_to_netcdf: bool, optional
     :param netcdf_path: Where to save the file, only needed when save_to_netcdf
@@ -629,11 +632,10 @@ def extract_regular_grid(
         parameters=parameters,
         lat_extent=lat_extent,
         lon_extent=lon_extent,
-        rad_extent=rad_extent,
+        depth_extent=depth_extent,
     )
 
     if save_to_netcdf:
         ds.to_netcdf(path=netcdf_path)
     else:
         return ds
-
