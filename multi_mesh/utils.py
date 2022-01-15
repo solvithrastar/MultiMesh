@@ -406,7 +406,8 @@ def _assess_layers(
     mesh_layers = np.sort(np.unique(mesh.elemental_fields["layer"]))[
         ::-1
     ].astype(int)
-
+    print(len(mesh.elemental_fields["layer"]))
+    print(mesh.nelem)
     # If requested layers are a list, we just check validity of list and return
     if isinstance(layers, (list, np.ndarray)):
         if np.max(layers) > np.max(mesh_layers):
@@ -430,7 +431,8 @@ def _assess_layers(
             f"{available_layers}"
         )
     # The layers are arranged outwards from the core
-    moho_idx = int(mesh.global_strings["moho_idx"])
+    if layers in ["crust", "mantle"]:
+        moho_idx = int(mesh.global_strings["moho_idx"])
     mask = True
     if layers == "all":
         return mesh_layers, False
