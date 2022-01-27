@@ -34,6 +34,7 @@ class SalvusMesh(object):
             self.elemental_parameter_indices = (
                 self.get_elemental_parameter_indices()
             )
+            print(self.elemental_parameter_indices)
             self.nodal_parameter_indices = self.get_nodal_parameter_indices()
             if not fast_mode:
                 self.elemental_fields = self.get_elemental_fields()
@@ -69,20 +70,18 @@ class SalvusMesh(object):
         self.global_strings = global_str
 
     def get_nodal_parameter_indices(self):
-        return (
-            self.dataset["MODEL/data"]
-            .attrs.get("DIMENSION_LABELS")[1]
-            .replace(" ", "")[1:-1]
-            .split("|")
-        )
+        indices = self.dataset["MODEL/data"].attrs.get("DIMENSION_LABELS")[1]
+        if not type(indices) == str:
+            indices = indices.decode()
+        indices = indices.replace(" ", "")[1:-1].split("|")
+        return indices
 
     def get_elemental_parameter_indices(self):
-        return (
-            self.dataset["MODEL/element_data"]
-            .attrs.get("DIMENSION_LABELS")[1]
-            .replace(" ", "")[1:-1]
-            .split("|")
-        )
+        indices = self.dataset["MODEL/element_data"].attrs.get("DIMENSION_LABELS")[1]
+        if not type(indices) == str:
+            indices = indices.decode()
+        indices = indices.replace(" ", "")[1:-1].split("|")
+        return indices
 
     def get_elemental_fields(self):
         if f"{self}.elemental_fields" in locals():
