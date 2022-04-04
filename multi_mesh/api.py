@@ -260,6 +260,7 @@ def gll_2_gll_layered_multi(
         parameters=parameters,
         nelem_to_search=nelem_to_search,
         threads=threads,
+        stored_array=stored_array,
         make_spherical=make_spherical,
     )
 

@@ -628,7 +628,7 @@ def gll_2_gll_layered_multi(
             values = np.sum(
                 original_mesh.element_nodal_fields[param][
                     original_mask[layer]
-                ][elms]
+                ][elms[:]]
                 * coeffs[layer],
                 axis=1,
             )
@@ -642,7 +642,7 @@ def gll_2_gll_layered_multi(
             values = np.sum(
                 original_mesh.element_nodal_fields[param][
                     original_mask[layer]
-                ][elms]
+                ][elms[:]]
                 * coeffs[layer],
                 axis=1,
             )
