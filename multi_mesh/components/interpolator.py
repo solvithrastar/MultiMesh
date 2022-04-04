@@ -604,18 +604,18 @@ def gll_2_gll_layered_multi(
 
         with multiprocessing.Pool(threads) as pool:
             pool.map(_find_interpolation_weights, layer_list)
-        pool.close()
-        pool.join()
+            pool.close()
+            pool.join()
 
         if stored_array is not None:
             print("Saving interpolation matrices")
             dataset = h5py.File(
                 os.path.join(stored_array, "interp_info.h5"), "w"
             )
-            for k, v in coeffs.items():
-                dataset.create_dataset(f"coeffs/{k}", data=v)
-            for k, v in elements.items():
-                dataset.create_dataset(f"elements/{k}", data=v)
+            for k in coeffs.keys():
+                dataset.create_dataset(f"coeffs/{k}", data=coeffs[k])
+            for k in elements.keys():
+                dataset.create_dataset(f"elements/{k}", data=elements[k])
             dataset.close()
     else:
         print("No need to loop, we have weights")
