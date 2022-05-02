@@ -23,18 +23,18 @@ def get_rot_matrix(angle, x, y, z):
     :return: Rotational Matrix
     """
     # Normalize vector.
-    norm = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    norm = np.sqrt(x**2 + y**2 + z**2)
     x /= norm
     y /= norm
     z /= norm
 
     # Setup matrix components.
     matrix = np.empty((3, 3))
-    matrix[0, 0] = np.cos(angle) + (x ** 2) * (1 - np.cos(angle))
+    matrix[0, 0] = np.cos(angle) + (x**2) * (1 - np.cos(angle))
     matrix[1, 0] = z * np.sin(angle) + x * y * (1 - np.cos(angle))
     matrix[2, 0] = (-1) * y * np.sin(angle) + x * z * (1 - np.cos(angle))
     matrix[0, 1] = x * y * (1 - np.cos(angle)) - z * np.sin(angle)
-    matrix[1, 1] = np.cos(angle) + (y ** 2) * (1 - np.cos(angle))
+    matrix[1, 1] = np.cos(angle) + (y**2) * (1 - np.cos(angle))
     matrix[2, 1] = x * np.sin(angle) + y * z * (1 - np.cos(angle))
     matrix[0, 2] = y * np.sin(angle) + x * z * (1 - np.cos(angle))
     matrix[1, 2] = (-1) * x * np.sin(angle) + y * z * (1 - np.cos(angle))
@@ -77,22 +77,16 @@ def rotate_mesh(mesh, event_loc, backwards=False):
     rotate_axis /= np.linalg.norm(rotate_axis)
     # Make sure that both axis and angle make sense with r-hand-rule
     rot_angle = np.arccos(np.dot(event_vec, north_vec))
-    rot_mat = get_rot_matrix(
-        rot_angle, rotate_axis[0], rotate_axis[1], rotate_axis[2]
-    )
+    rot_mat = get_rot_matrix(rot_angle, rotate_axis[0], rotate_axis[1], rotate_axis[2])
     if backwards:
         rot_mat = rot_mat.T
 
     mesh = exodus(mesh, mode="a")
     points = mesh.get_coords()
-    rotated_points = rotate(
-        x=points[0], y=points[1], z=points[2], matrix=rot_mat
-    )
+    rotated_points = rotate(x=points[0], y=points[1], z=points[2], matrix=rot_mat)
     rotated_points = rotated_points.T
 
-    mesh.put_coords(
-        rotated_points[:, 0], rotated_points[:, 1], rotated_points[:, 2]
-    )
+    mesh.put_coords(rotated_points[:, 0], rotated_points[:, 1], rotated_points[:, 2])
 
     # It's not rotating in the right direction but that remains to be
     # configured properly.
@@ -128,7 +122,7 @@ def cart2sph(x, y, z):
     """
 
     x, y, z = np.asarray(x), np.asarray(y), np.asarray(z)
-    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    r = np.sqrt(x**2 + y**2 + z**2)
 
     # Handle division by zero at the core
     with np.errstate(invalid="ignore"):
@@ -259,9 +253,7 @@ def create_dataset(
         mask = np.ones_like(mesh.elemental_fields["layers"], dtype=bool)
 
     # We create and return the xarray dataset
-    return _create_dataset(
-        mesh=mesh, mask=mask, parameters=parameters, coords=coords
-    )
+    return _create_dataset(mesh=mesh, mask=mask, parameters=parameters, coords=coords)
 
 
 def _create_dataset(
@@ -388,9 +380,7 @@ def _create_mask(
 
 
 def _assess_layers(
-    mesh: Union[
-        salvus.mesh.unstructured_mesh.UnstructuredMesh, smr.SalvusMesh
-    ],
+    mesh: Union[salvus.mesh.unstructured_mesh.UnstructuredMesh, smr.SalvusMesh],
     layers: Union[List[int], str],
 ) -> Tuple[List[int], bool]:
     """
@@ -403,11 +393,7 @@ def _assess_layers(
     """
     # We sort layers in descending order in order to make moho_idx make sense
     _ = mesh.get_elemental_fields()
-    mesh_layers = np.sort(np.unique(mesh.elemental_fields["layer"]))[
-        ::-1
-    ].astype(int)
-    print(len(mesh.elemental_fields["layer"]))
-    print(mesh.nelem)
+    mesh_layers = np.sort(np.unique(mesh.elemental_fields["layer"]))[::-1].astype(int)
     # If requested layers are a list, we just check validity of list and return
     if isinstance(layers, (list, np.ndarray)):
         if np.max(layers) > np.max(mesh_layers):
@@ -427,8 +413,7 @@ def _assess_layers(
     available_layers = ["all", "crust", "mantle", "core", "nocore"]
     if not isinstance(layers, str):
         raise ValueError(
-            f"Input for layers needs to be a list of one of: "
-            f"{available_layers}"
+            f"Input for layers needs to be a list of one of: " f"{available_layers}"
         )
     # The layers are arranged outwards from the core
     if layers in ["crust", "mantle"]:
@@ -478,9 +463,7 @@ def create_layer_mask(
 
 
 def get_unique_points(
-    points: Union[
-        np.array, str, salvus.mesh.unstructured_mesh.UnstructuredMesh
-    ],
+    points: Union[np.array, str, salvus.mesh.unstructured_mesh.UnstructuredMesh],
     mesh=False,
     layers=None,
 ):
@@ -521,9 +504,7 @@ def get_unique_points(
         for layer in layers:
             nodes = points.get_element_nodes()[mask[str(layer)]]
             unique_points[str(layer)] = np.unique(
-                nodes.reshape(
-                    (nodes.shape[0] * nodes.shape[1], nodes.shape[2])
-                ),
+                nodes.reshape((nodes.shape[0] * nodes.shape[1], nodes.shape[2])),
                 return_inverse=True,
                 axis=0,
             )
@@ -581,9 +562,7 @@ def greatcircle_points(
     point = geodesic.Geodesic.WGS84.Inverse(
         lat1=point_1_lat, lon1=point_1_lng, lat2=point_2_lat, lon2=point_2_lng
     )
-    line = geodesic.Geodesic.WGS84.Line(
-        point_1_lat, point_1_lng, point["azi1"]
-    )
+    line = geodesic.Geodesic.WGS84.Line(point_1_lat, point_1_lng, point["azi1"])
 
     if npts < 3:
         raise Exception("You should supply at least 3 points")
@@ -625,7 +604,7 @@ def cart2sph(x, y, z):
     """
 
     x, y, z = np.asarray(x), np.asarray(y), np.asarray(z)
-    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    r = np.sqrt(x**2 + y**2 + z**2)
 
     # Handle division by zero at the core
     with np.errstate(invalid="ignore"):

@@ -100,13 +100,9 @@ def query_model(
     )
     original_tree = KDTree(all_original_points)
 
-    assert (
-        coordinates.shape[1] == 3
-    ), "Make sure coordinates array has shape N,3"
+    assert coordinates.shape[1] == 3, "Make sure coordinates array has shape N,3"
     coordinates = latlondepth_to_xyz(latlondepth=coordinates)
-    _, nearest_element_indices = original_tree.query(
-        coordinates, k=nelem_to_search
-    )
+    _, nearest_element_indices = original_tree.query(coordinates, k=nelem_to_search)
     # We need to get the arrays ready for the interpolation function
     nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
     coordinates = np.swapaxes(coordinates, 0, 1)
@@ -185,9 +181,7 @@ def exodus_2_gll(
 
     nearest_element_indices = np.swapaxes(nearest_element_indices, 0, 1)
 
-    enclosing_elem_node_indices = np.zeros(
-        (gll_points, npoints, 8), dtype=np.int64
-    )
+    enclosing_elem_node_indices = np.zeros((gll_points, npoints, 8), dtype=np.int64)
     weights = np.zeros((gll_points, npoints, 8))
     permutation = [0, 3, 2, 1, 4, 5, 6, 7]
     i = np.argsort(permutation)
@@ -198,9 +192,7 @@ def exodus_2_gll(
     nfailed = 0
 
     parameters = utils.pick_parameters(parameters)
-    utils.remove_and_create_empty_dataset(
-        gll, parameters, model_path, coordinates_path
-    )
+    utils.remove_and_create_empty_dataset(gll, parameters, model_path, coordinates_path)
     param_exodus = np.zeros(
         shape=(len(parameters), len(exodus.get_nodal_field(parameters[0])))
     )
@@ -225,8 +217,7 @@ def exodus_2_gll(
         )
         assert nfailed is 0, f"{nfailed} points could not be interpolated."
         values = np.sum(
-            param_exodus[:, enclosing_elem_node_indices[i, :, :]]
-            * weights[i, :, :],
+            param_exodus[:, enclosing_elem_node_indices[i, :, :]] * weights[i, :, :],
             axis=2,
         )
 
@@ -254,9 +245,7 @@ def gll_2_exodus(
     with h5py.File(gll_model, "r") as gll_model:
         gll_points = np.array(gll_model[coordinates_path][:], dtype=np.float64)
         gll_data = gll_model[model_path][:]
-        params = (
-            gll_model[model_path].attrs.get("DIMENSION_LABELS")[1].decode()
-        )
+        params = gll_model[model_path].attrs.get("DIMENSION_LABELS")[1].decode()
         parameters = params[2:-2].replace(" ", "").split("|")
 
     centroids = _find_gll_centroids(gll_points, dimensions)
@@ -272,9 +261,7 @@ def gll_2_exodus(
     print(exodus.points.shape)
     # if exodus.points.shape[1] == 3:
     #     exodus.points = exodus.points[:, :-1]
-    _, nearest_element_indices = centroid_tree.query(
-        exodus.points, k=nelem_to_search
-    )
+    _, nearest_element_indices = centroid_tree.query(exodus.points, k=nelem_to_search)
     npoints = exodus.npoint
     # parameters = utils.pick_parameters(parameters)
     values = np.zeros(shape=[npoints, len(parameters)])
@@ -283,10 +270,7 @@ def gll_2_exodus(
 
     for point in exodus.points:
         if s == 0 or (s + 1) % 1000 == 0:
-            print(
-                f"Now I'm looking at point number:"
-                f"{s+1}{len(exodus.points)}"
-            )
+            print(f"Now I'm looking at point number:" f"{s+1}{len(exodus.points)}")
         element, ref_coord = _check_if_inside_element(
             gll_points, nearest_element_indices[s, :], point, dimensions
         )
@@ -343,9 +327,7 @@ def gll_2_gll_layered(
     original_mesh = SalvusMesh(from_gll, fast_mode=False)
     if make_spherical:
         map_to_sphere(original_mesh)
-    original_mask, layers = utils.create_layer_mask(
-        mesh=original_mesh, layers=layers
-    )
+    original_mask, layers = utils.create_layer_mask(mesh=original_mesh, layers=layers)
     if parameters == "all":
         parameters = list(original_mesh.element_nodal_fields.keys())
     # original_points = original_mesh.get_element_nodes()[original_mask]
@@ -380,17 +362,15 @@ def gll_2_gll_layered(
     if loop:
         for layer in layers:
             layer = str(layer)
-            points = original_mesh.get_element_centroids()[
-                original_mask[layer]
-            ]
+            points = original_mesh.get_element_centroids()[original_mask[layer]]
             original_trees[layer] = KDTree(points)
             nearest_element_indices[layer] = np.zeros(
                 shape=(unique_new_points[layer][0].shape[0], nelem_to_search),
                 dtype=np.int,
             )
-            _, nearest_element_indices[layer][:, :] = original_trees[
-                layer
-            ].query(unique_new_points[layer][0], k=nelem_to_search)
+            _, nearest_element_indices[layer][:, :] = original_trees[layer].query(
+                unique_new_points[layer][0], k=nelem_to_search
+            )
 
         # I should try the tri-linear interpolation here too. But then I KDTree to the gll points.
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.griddata.html
@@ -410,9 +390,7 @@ def gll_2_gll_layered(
 
         if stored_array is not None:
             print("Saving interpolation matrices")
-            dataset = h5py.File(
-                os.path.join(stored_array, "interp_info.h5"), "w"
-            )
+            dataset = h5py.File(os.path.join(stored_array, "interp_info.h5"), "w")
             for k, v in coeffs.items():
                 dataset.create_dataset(f"coeffs/{k}", data=v)
             for k, v in elements.items():
@@ -427,9 +405,7 @@ def gll_2_gll_layered(
             elms = elements[layer][()].astype(int)
         for param in parameters:
             values = np.sum(
-                original_mesh.element_nodal_fields[param][
-                    original_mask[layer]
-                ][elms]
+                original_mesh.element_nodal_fields[param][original_mask[layer]][elms]
                 * coeffs[layer],
                 axis=1,
             )
@@ -441,15 +417,13 @@ def gll_2_gll_layered(
         for layer in coeffs.keys():
             elms = elements[layer].astype(int)
             values = np.sum(
-                original_mesh.element_nodal_fields[param][
-                    original_mask[layer]
-                ][elms]
+                original_mesh.element_nodal_fields[param][original_mask[layer]][elms]
                 * coeffs[layer],
                 axis=1,
             )
-            new_field[mask[layer]] = values[
-                unique_new_points[layer][1]
-            ].reshape(new_mesh.element_nodal_fields[param][mask[layer]].shape)
+            new_field[mask[layer]] = values[unique_new_points[layer][1]].reshape(
+                new_mesh.element_nodal_fields[param][mask[layer]].shape
+            )
         new_mesh.attach_field(name=param, data=new_field)
 
     # for param in parameters:
@@ -511,9 +485,7 @@ def gll_2_gll_layered_multi(
     original_mesh = SalvusMesh(from_gll, fast_mode=False)
     if make_spherical:
         map_to_sphere(original_mesh)
-    original_mask, layers = utils.create_layer_mask(
-        mesh=original_mesh, layers=layers
-    )
+    original_mask, layers = utils.create_layer_mask(mesh=original_mesh, layers=layers)
     if parameters == "all":
         parameters = list(original_mesh.element_nodal_fields.keys())
     dimensions = 3
@@ -609,9 +581,7 @@ def gll_2_gll_layered_multi(
 
         if stored_array is not None:
             print("Saving interpolation matrices")
-            dataset = h5py.File(
-                os.path.join(stored_array, "interp_info.h5"), "w"
-            )
+            dataset = h5py.File(os.path.join(stored_array, "interp_info.h5"), "w")
             for k in coeffs.keys():
                 dataset.create_dataset(f"coeffs/{k}", data=coeffs[k])
             for k in elements.keys():
@@ -626,9 +596,7 @@ def gll_2_gll_layered_multi(
 
         for param in parameters:
             values = np.sum(
-                original_mesh.element_nodal_fields[param][
-                    original_mask[layer]
-                ][elms[:]]
+                original_mesh.element_nodal_fields[param][original_mask[layer]][elms[:]]
                 * coeffs[layer],
                 axis=1,
             )
@@ -640,15 +608,13 @@ def gll_2_gll_layered_multi(
         for layer in coeffs.keys():
             elms = elements[layer].astype(int)
             values = np.sum(
-                original_mesh.element_nodal_fields[param][
-                    original_mask[layer]
-                ][elms[:]]
+                original_mesh.element_nodal_fields[param][original_mask[layer]][elms[:]]
                 * coeffs[layer],
                 axis=1,
             )
-            new_field[mask[layer]] = values[
-                unique_new_points[layer][1]
-            ].reshape(new_mesh.element_nodal_fields[param][mask[layer]].shape)
+            new_field[mask[layer]] = values[unique_new_points[layer][1]].reshape(
+                new_mesh.element_nodal_fields[param][mask[layer]].shape
+            )
         new_mesh.attach_field(name=param, data=new_field)
 
 
@@ -698,9 +664,7 @@ def gll_2_gll(
     )
 
     dimensions = original_points.shape[2]
-    from_gll_order = (
-        int(round(original_data.shape[2] ** (1.0 / dimensions))) - 1
-    )
+    from_gll_order = int(round(original_data.shape[2] ** (1.0 / dimensions))) - 1
     parameters = original_params
     # parameters = utils.pick_parameters(parameters)
     assert set(parameters) <= set(
@@ -717,9 +681,7 @@ def gll_2_gll(
     # We look for the fluid elements, we wan't to avoid solids getting fluid values
     # which can happen if one gll point hits a solid value.
     new_points = np.array(new[to_coordinates_path][:], dtype=np.float64)
-    elem_params = (
-        new["MODEL/element_data"].attrs.get("DIMENSION_LABELS")[1].decode()
-    )
+    elem_params = new["MODEL/element_data"].attrs.get("DIMENSION_LABELS")[1].decode()
     elem_params = elem_params[2:-2].replace(" ", "").split("|")
     fluid_index = elem_params.index("fluid")
     fluid_elements = new["MODEL/element_data"][:, fluid_index].astype(bool)
@@ -824,14 +786,10 @@ def gll_2_gll(
         k = np.isnan(coeffs)
         print(f"NAN DETECTED for coeffs: {np.where(k)}")
         print(f"AMOUNT OF NANS: {np.where(k)[0].shape}")
-        assert np.where(k)[0].shape[0] == 0, print(
-            "Interpolation failed somehow"
-        )
+        assert np.where(k)[0].shape[0] == 0, print("Interpolation failed somehow")
         for i in range(len(parameters))[1:]:
             coeffs[i, :, :] = coeffs[0, :, :]
-        print(
-            "Interpolation done, Need to organize the results and write to file"
-        )
+        print("Interpolation done, Need to organize the results and write to file")
         num_failed = len(np.where(element == -1)[0])
         if num_failed > 0:
             print(f"{num_failed} points could not find an enclosing element.")
@@ -877,9 +835,7 @@ def gll_2_gll(
             vs_index = parameters.index("VSV")
         # look at fake fluid values
         zero_vs = np.where(values[:, vs_index, :] == 0.0)
-        print(
-            "If any fluid values accidentally went to the solid part we fix it"
-        )
+        print("If any fluid values accidentally went to the solid part we fix it")
         for _i, elem in enumerate(np.unique(zero_vs[0])):
             if solid_elements[elem]:
                 values[elem, :, :] = new_values[elem, :, :]
@@ -920,9 +876,7 @@ def interpolate_to_points_layered(
     from multi_mesh.components.salvus_mesh_reader import SalvusMesh
 
     original_mesh = SalvusMesh(from_mesh, fast_mode=False)
-    original_mask, layers = utils.create_layer_mask(
-        mesh=original_mesh, layers=layers
-    )
+    original_mask, layers = utils.create_layer_mask(mesh=original_mesh, layers=layers)
     if parameters == "all":
         parameters = list(original_mesh.element_nodal_fields.keys())
     dimensions = 3
@@ -962,23 +916,19 @@ def interpolate_to_points_layered(
             if _i == 0:
                 num_failed += len(np.where(elem_indices[layer] == -1)[0])
             values = np.sum(
-                original_mesh.element_nodal_fields[param][
-                    original_mask[layer]
-                ][elms]
+                original_mesh.element_nodal_fields[param][original_mask[layer]][elms]
                 * coeffs[layer],
                 axis=1,
             )
-            new_field[mask[layer]] = values[
-                unique_new_points[layer][1]
-            ].reshape(new_mesh.element_nodal_fields[param][mask[layer]].shape)
+            new_field[mask[layer]] = values[unique_new_points[layer][1]].reshape(
+                new_mesh.element_nodal_fields[param][mask[layer]].shape
+            )
         new_mesh.attach_field(name=param, data=new_field)
     if num_failed > 0:
         print(f"{num_failed} points could not be interpolated")
 
 
-def interpolate_to_points(
-    mesh, points, params_to_interp, make_spherical=False
-):
+def interpolate_to_points(mesh, points, params_to_interp, make_spherical=False):
     """
     Interpolates from a mesh to point cloud.
 
@@ -1023,21 +973,20 @@ def interpolate_to_points(
     vals = np.zeros((len(points), len(params_to_interp)))
     for i, param in enumerate(params_to_interp):
         old_element_nodal_vals = mesh.element_nodal_fields[param]
-        vals[:, i] = np.sum(
-            coeffs * old_element_nodal_vals[elem_indices], axis=1
-        )
+        vals[:, i] = np.sum(coeffs * old_element_nodal_vals[elem_indices], axis=1)
     return vals
 
 
 def gll_2_gll_layered_multi_two(
-        from_gll: Union[str, pathlib.Path],
-        to_gll: Union[str, pathlib.Path],
-        layers: Union[List[int], str],
-        nelem_to_search: int = 30,
-        parameters: Union[List[str], str] = "all",
-        stored_array: Union[str, pathlib.Path] = None,
-        make_spherical: bool = False,
-        tolerance: float = 1.05):
+    from_gll: Union[str, pathlib.Path],
+    to_gll: Union[str, pathlib.Path],
+    layers: Union[List[int], str],
+    nelem_to_search: int = 30,
+    parameters: Union[List[str], str] = "all",
+    stored_array: Union[str, pathlib.Path] = None,
+    make_spherical: bool = False,
+    tolerance: float = 1.05,
+):
     """
     Interpolate between two meshes paralellizing over the layers
 
@@ -1068,8 +1017,7 @@ def gll_2_gll_layered_multi_two(
     original_mesh = SalvusMesh(from_gll, fast_mode=False)
     if make_spherical:
         map_to_sphere(original_mesh)
-    original_mask, layers = utils.create_layer_mask(mesh=original_mesh,
-                                                    layers=layers)
+    original_mask, layers = utils.create_layer_mask(mesh=original_mesh, layers=layers)
 
     if parameters == "all":
         parameters = list(original_mesh.element_nodal_fields.keys())
@@ -1077,15 +1025,15 @@ def gll_2_gll_layered_multi_two(
     if make_spherical:
         map_to_sphere(new_mesh)
 
-    unique_new_points, mask, layers = utils.get_unique_points(points=new_mesh,
-                                                              mesh=True,
-                                                              layers=layers)
+    unique_new_points, mask, layers = utils.get_unique_points(
+        points=new_mesh, mesh=True, layers=layers
+    )
 
     loop = True
     coeffs = {}
     elements = {}
     if stored_array is not None and os.path.exists(
-            os.path.join(stored_array, "interp_info.h5")
+        os.path.join(stored_array, "interp_info.h5")
     ):
         print("No need for looping, we have the matrices")
         loop = False
@@ -1106,13 +1054,12 @@ def gll_2_gll_layered_multi_two(
                 unique_new_points[layer][0],
                 nelem_to_search=nelem_to_search,
                 tolerance=tolerance,
-                snap_to_nearest=True)
+                snap_to_nearest=True,
+            )
 
         if stored_array is not None:
             print("Saving interpolation matrices")
-            dataset = h5py.File(
-                os.path.join(stored_array, "interp_info.h5"), "w"
-            )
+            dataset = h5py.File(os.path.join(stored_array, "interp_info.h5"), "w")
             for k in coeffs.keys():
                 dataset.create_dataset(f"coeffs/{k}", data=coeffs[k])
             for k in elements.keys():
@@ -1123,15 +1070,15 @@ def gll_2_gll_layered_multi_two(
         new_field = new_mesh.element_nodal_fields[param]
         for layer in coeffs.keys():
             values = np.sum(
-                original_mesh.element_nodal_fields[param][
-                    original_mask[layer]
-                ][elements[layer]]
+                original_mesh.element_nodal_fields[param][original_mask[layer]][
+                    elements[layer]
+                ]
                 * coeffs[layer],
                 axis=1,
             )
-            new_field[mask[layer]] = values[
-                unique_new_points[layer][1]
-            ].reshape(new_mesh.element_nodal_fields[param][mask[layer]].shape)
+            new_field[mask[layer]] = values[unique_new_points[layer][1]].reshape(
+                new_mesh.element_nodal_fields[param][mask[layer]].shape
+            )
         new_mesh.attach_field(name=param, data=new_field)
 
 
@@ -1144,7 +1091,7 @@ def map_to_ellipse(base_mesh, mesh):
     """
     # Get radial ratio for each element node
     r_earth = 6371000
-    r = np.sqrt(np.sum(base_mesh.points ** 2, axis=1)) / r_earth
+    r = np.sqrt(np.sum(base_mesh.points**2, axis=1)) / r_earth
     _, i = np.unique(base_mesh.connectivity, return_index=True)
     rad_1d_values = base_mesh.element_nodal_fields["z_node_1D"].flatten()[i]
     r_ratio = r / rad_1d_values
@@ -1162,15 +1109,11 @@ def map_to_ellipse(base_mesh, mesh):
 
     # Get elements and interpolation coefficients for new_points
     print("Retrieving interpolation weigts")
-    elem_indices, coeffs = get_element_weights(
-        gll_points, centroid_tree, mesh.points
-    )
+    elem_indices, coeffs = get_element_weights(gll_points, centroid_tree, mesh.points)
 
     num_failed = len(np.where(elem_indices == -1)[0])
     if num_failed > 0:
-        raise Exception(
-            f"{num_failed} points could not find an enclosing element."
-        )
+        raise Exception(f"{num_failed} points could not find an enclosing element.")
 
     mesh_point_r_ratio = np.sum(
         coeffs * r_ratio_element_nodal_base[elem_indices], axis=1
@@ -1192,7 +1135,7 @@ def map_to_sphere(mesh):
 
     r_earth = 6371000
     x, y, z = mesh.points.T
-    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+    r = np.sqrt(x**2 + y**2 + z**2)
 
     # Convert all points that do not lie right in the core
     # I think this should work for the SalvusMesh too
@@ -1201,8 +1144,15 @@ def map_to_sphere(mesh):
     z[r > 0] = z[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
 
 
-def get_element_weights(gll_points, shape_order, centroid_tree, points,
-                        nelem_to_search=25, tolerance=1.05, snap_to_nearest=False):
+def get_element_weights(
+    gll_points,
+    shape_order,
+    centroid_tree,
+    points,
+    nelem_to_search=25,
+    tolerance=1.05,
+    snap_to_nearest=False,
+):
     """
     A function to figure out inside which element the point to be
     interpolated is. In addition, it gives the interpolation coefficients
@@ -1252,8 +1202,8 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points,
                     continue
 
                 if np.max(np.abs(ref_coord)) < np.max(np.abs(max_ref_coord_val)):
-                       max_ref_coord_val = ref_coord
-                       max_ref_element_num = element
+                    max_ref_coord_val = ref_coord
+                    max_ref_element_num = element
 
                 if np.all(np.abs(ref_coord) < tolerance):
                     coeffs = get_coefficients(
@@ -1269,12 +1219,12 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points,
                 max_ref_coord_val = np.clip(max_ref_coord_val, -1.02, 1.02)
 
                 coeffs = get_coefficients(
-                        shape_order,
-                        0,
-                        0,
-                        np.asfortranarray(max_ref_coord_val, dtype=np.float64),
-                        3,
-                    )
+                    shape_order,
+                    0,
+                    0,
+                    np.asfortranarray(max_ref_coord_val, dtype=np.float64),
+                    3,
+                )
 
                 # return weights zero if nothing found
                 return max_ref_element_num, coeffs
@@ -1282,29 +1232,21 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points,
                 # Return -1 and zeros for the missing values
                 return -1, np.zeros((shape_order + 1) ** 3)
 
-        a = np.vectorize(
-            check_inside, signature="(),()->(),(n)", otypes=[int, float]
-        )
+        a = np.vectorize(check_inside, signature="(),()->(),(n)", otypes=[int, float])
         return a(point_indices, element_num)
 
     # Split array in chunks
-    num_processes = multiprocessing.cpu_count() / 2
+    num_processes = multiprocessing.cpu_count()
     n = int(num_processes)
     task_list = np.array_split(np.arange(len(points)), n)
 
     elems = []
     coeffs = []
     with multiprocessing.Pool(n) as pool:
-        with tqdm(
-            total=len(task_list),
-            bar_format="{l_bar}{bar}[{elapsed}<{remaining},"
-            " '{rate_fmt}{postfix}]",
-        ) as pbar:
-            for i, r in enumerate(pool.imap(_get_coeffs, task_list)):
-                elem_in, coeff = r
-                pbar.update()
-                elems.append(elem_in)
-                coeffs.append(coeff)
+        for i, r in enumerate(pool.imap(_get_coeffs, task_list)):
+            elem_in, coeff = r
+            elems.append(elem_in)
+            coeffs.append(coeff)
         pool.close()
         pool.join()
 
@@ -1354,9 +1296,7 @@ def get_element_weights_layered(
                     return element, coeffs
             return -1, np.zeros((from_gll_order + 1) ** dimensions)
 
-        a = np.vectorize(
-            check_inside, signature="()->(),(n)", otypes=[int, float]
-        )
+        a = np.vectorize(check_inside, signature="()->(),(n)", otypes=[int, float])
         return a(point_indices)
 
     # Now I need the multiprocessing magic
@@ -1380,9 +1320,7 @@ def get_element_weights_layered(
                 bar_format="{l_bar}{bar}[{elapsed}<{remaining},"
                 " '{rate_fmt}{postfix}]",
             ) as pbar:
-                for r in pool.imap(
-                    _get_coeffs_layered, points, chunksize=chunksize
-                ):
+                for r in pool.imap(_get_coeffs_layered, points, chunksize=chunksize):
                     elem_in, coeff = r
                     pbar.update()
                     element_list.append(elem_in)
@@ -1445,9 +1383,7 @@ def inverse_transform(point, gll_points, dimension):
                 pnt=point, ctrlNodes=gll_points
             )
     elif dimension == 2:
-        return InverseCoordinateTransformWrapper2D(
-            pnt=point, ctrlNodes=gll_points
-        )
+        return InverseCoordinateTransformWrapper2D(pnt=point, ctrlNodes=gll_points)
 
 
 def _find_gll_centroids(gll_coordinates, dimensions=3):
@@ -1465,9 +1401,7 @@ def _find_gll_centroids(gll_coordinates, dimensions=3):
     centroids = np.zeros(shape=[nelements, dimensions])
 
     for d in range(dimensions):
-        centroids[:, d] = np.mean(
-            gll_coordinates[:, :, d], axis=1, dtype=np.float64
-        )
+        centroids[:, d] = np.mean(gll_coordinates[:, :, d], axis=1, dtype=np.float64)
 
     return centroids
 
@@ -1525,9 +1459,7 @@ def _check_if_inside_element(
 
     ref_coord = inverse_transform(
         point=point,
-        gll_points=np.asfortranarray(
-            gll_model[element, :, :], dtype=np.float64
-        ),
+        gll_points=np.asfortranarray(gll_model[element, :, :], dtype=np.float64),
         dimension=dimension,
     )
     if np.any(np.isnan(ref_coord)):
@@ -1584,9 +1516,7 @@ def fill_value_array(
     # nodes = original_mesh.get_element_nodes()[original_mask]
     for key, val in new_coordinates.items():
         print(f"Interpolating layer: {key}")
-        coeffs[key] = np.zeros(
-            shape=(val[0].shape[0], original_mesh.n_gll_points)
-        )
+        coeffs[key] = np.zeros(shape=(val[0].shape[0], original_mesh.n_gll_points))
         element[key] = np.empty(val[0].shape[0], dtype=int)
         nodes = original_mesh.points[original_mask[key]]
         for _i, coord in tqdm(enumerate(val[0]), total=val[0].shape[0]):
@@ -1668,9 +1598,7 @@ def find_gll_coeffs(
 
 
 def extract_regular_grid(
-    mesh: Union[
-        str, pathlib.Path, salvus.mesh.unstructured_mesh.UnstructuredMesh
-    ],
+    mesh: Union[str, pathlib.Path, salvus.mesh.unstructured_mesh.UnstructuredMesh],
     parameters: List[str],
     lat_extent: Tuple[float, float, float],
     lon_extent: Tuple[float, float, float],
@@ -1701,12 +1629,8 @@ def extract_regular_grid(
 
         mesh = um.from_h5(mesh)
 
-    lat = np.linspace(
-        start=lat_extent[0], stop=lat_extent[1], num=lat_extent[2]
-    )
-    lon = np.linspace(
-        start=lon_extent[0], stop=lon_extent[1], num=lon_extent[2]
-    )
+    lat = np.linspace(start=lat_extent[0], stop=lat_extent[1], num=lat_extent[2])
+    lon = np.linspace(start=lon_extent[0], stop=lon_extent[1], num=lon_extent[2])
     depth = np.linspace(
         start=depth_extent[0], stop=depth_extent[1], num=depth_extent[2]
     )

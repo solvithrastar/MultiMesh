@@ -640,3 +640,60 @@ def extract_regular_grid(
         ds.to_netcdf(path=netcdf_path)
     else:
         return ds
+
+
+def gll_2_gll_layered_multi_two(
+    from_gll: Union[str, pathlib.Path],
+    to_gll: Union[str, pathlib.Path],
+    layers: Union[List[int], str],
+    nelem_to_search: int = 30,
+    parameters: Union[List[str], str] = "all",
+    stored_array: Union[str, pathlib.Path] = None,
+    make_spherical: bool = False,
+    tolerance: float = 1.05,
+):
+    """
+    Interpolate between two meshes paralellizing over the layers
+
+    :param from_gll: Path to a mesh to interpolate from
+    :type from_gll: Union[str, pathlib.Path]
+    :param to_gll: Path to a mesh to interpolate onto
+    :type to_gll: Union[str, pathlib.Path]
+    :param layers: Layers to interpolate.
+    :type layers: Union[List[int], str]
+    :param nelem_to_search: number of elements to search for, defaults to 20
+    :type nelem_to_search: int, optional
+    :param parameters: parameters to interpolate, defaults to "all"
+    :type parameters: Union[List[str], str], optional
+    :param stored_array: If you want to store the array for future
+        interpolations. If the array exists in that path it will be loaded.
+        Store elements under elements.npy and coeffs under coeffs.npy
+    :type stored_array: Union[str, pathlib.Path], optional
+    :param make_spherical: If meshes are not spherical, this is recommended,
+        defaults to False
+    :type make_spherical: bool, optional
+    :param tolerance: Tolerance for how far a point may lay outside of an element.
+    Defaults to 1.05 (5%)
+    :type tolerance: float
+    """
+    from multi_mesh.components.interpolator import gll_2_gll_layered_multi_two
+
+    start = time.time()
+    gll_2_gll_layered_multi_two(
+        from_gll=from_gll,
+        to_gll=to_gll,
+        layers=layers,
+        nelem_to_search=nelem_to_search,
+        parameters=parameters,
+        stored_array=stored_array,
+        make_spherical=make_spherical,
+        tolerance=tolerance,
+    )
+    end = time.time()
+    runtime = end - start
+
+    if runtime >= 60:
+        runtime = runtime / 60
+        print(f"Finished in time: {runtime} minutes")
+    else:
+        print(f"Finished in time: {runtime} seconds")
