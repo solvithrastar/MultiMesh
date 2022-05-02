@@ -1029,6 +1029,112 @@ def interpolate_to_points(
     return vals
 
 
+def gll_2_gll_layered_multi_two(
+        from_gll: Union[str, pathlib.Path],
+        to_gll: Union[str, pathlib.Path],
+        layers: Union[List[int], str],
+        nelem_to_search: int = 30,
+        parameters: Union[List[str], str] = "all",
+        stored_array: Union[str, pathlib.Path] = None,
+        make_spherical: bool = False,
+        tolerance: float = 1.05):
+    """
+    Interpolate between two meshes paralellizing over the layers
+
+    :param from_gll: Path to a mesh to interpolate from
+    :type from_gll: Union[str, pathlib.Path]
+    :param to_gll: Path to a mesh to interpolate onto
+    :type to_gll: Union[str, pathlib.Path]
+    :param layers: Layers to interpolate.
+    :type layers: Union[List[int], str]
+    :param nelem_to_search: number of elements to search for, defaults to 20
+    :type nelem_to_search: int, optional
+    :param parameters: parameters to interpolate, defaults to "all"
+    :type parameters: Union[List[str], str], optional
+    :param stored_array: If you want to store the array for future
+        interpolations. If the array exists in that path it will be loaded.
+        Store elements under elements.npy and coeffs under coeffs.npy
+    :type stored_array: Union[str, pathlib.Path], optional
+    :param make_spherical: If meshes are not spherical, this is recommended,
+        defaults to False
+    :type make_spherical: bool, optional
+    :param tolerance: Tolerance for how far a point may lay outside of an element.
+    Defaults to 1.05 (5%)
+    :type tolerance: float
+    """
+    from multi_mesh.components.salvus_mesh_reader import SalvusMesh
+
+    print("Initialization stage")
+    original_mesh = SalvusMesh(from_gll, fast_mode=False)
+    if make_spherical:
+        map_to_sphere(original_mesh)
+    original_mask, layers = utils.create_layer_mask(mesh=original_mesh,
+                                                    layers=layers)
+
+    if parameters == "all":
+        parameters = list(original_mesh.element_nodal_fields.keys())
+    new_mesh = SalvusMesh(to_gll, fast_mode=False)
+    if make_spherical:
+        map_to_sphere(new_mesh)
+
+    unique_new_points, mask, layers = utils.get_unique_points(points=new_mesh,
+                                                              mesh=True,
+                                                              layers=layers)
+
+    loop = True
+    coeffs = {}
+    elements = {}
+    if stored_array is not None and os.path.exists(
+            os.path.join(stored_array, "interp_info.h5")
+    ):
+        print("No need for looping, we have the matrices")
+        loop = False
+        dataset = h5py.File(os.path.join(stored_array, "interp_info.h5"), "r")
+
+        for layer in list(unique_new_points.keys()):
+            coeffs[layer] = dataset[f"coeffs/{layer}"][:]
+            elements[layer] = dataset[f"elements/{layer}"][:]
+
+    parameters = utils.pick_parameters(parameters)
+    if loop:  # Fill the values
+        for layer in list(unique_new_points.keys()):
+            print("interpolating layer", layer, "...")
+            elements[layer], coeffs[layer] = get_element_weights(
+                original_mesh.points[original_mask[layer]],
+                original_mesh.shape_order,
+                KDTree(original_mesh.get_element_centroids()[original_mask[layer]]),
+                unique_new_points[layer][0],
+                nelem_to_search=nelem_to_search,
+                tolerance=tolerance,
+                snap_to_nearest=True)
+
+        if stored_array is not None:
+            print("Saving interpolation matrices")
+            dataset = h5py.File(
+                os.path.join(stored_array, "interp_info.h5"), "w"
+            )
+            for k in coeffs.keys():
+                dataset.create_dataset(f"coeffs/{k}", data=coeffs[k])
+            for k in elements.keys():
+                dataset.create_dataset(f"elements/{k}", data=elements[k])
+            dataset.close()
+
+    for _i, param in enumerate(parameters):
+        new_field = new_mesh.element_nodal_fields[param]
+        for layer in coeffs.keys():
+            values = np.sum(
+                original_mesh.element_nodal_fields[param][
+                    original_mask[layer]
+                ][elements[layer]]
+                * coeffs[layer],
+                axis=1,
+            )
+            new_field[mask[layer]] = values[
+                unique_new_points[layer][1]
+            ].reshape(new_mesh.element_nodal_fields[param][mask[layer]].shape)
+        new_mesh.attach_field(name=param, data=new_field)
+
+
 def map_to_ellipse(base_mesh, mesh):
     """Takes a base mesh with ellipticity topography and
     stretches the mesh to have the same ellipticity.
@@ -1107,6 +1213,11 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points,
     :param centroid_tree: scipy.spatial.cKDTree that is initialized with the
      centroids of the elements of old_mesh
     :param points: List of points that require interpolation
+    :param nelem_to_search: Number of candidate elements to search, defaults to 25
+    :param tolerance: tolerance in allowing values outside
+    :param snap_to_nearest: Snap to closest value to ensure a value
+    gets given. Should be false when ising meshes that have points that
+    do not lie in the domain.
     :return: the enclosing elements and interpolation weights
     """
     global _get_coeffs

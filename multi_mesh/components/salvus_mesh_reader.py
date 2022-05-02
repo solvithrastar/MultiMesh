@@ -50,7 +50,7 @@ class SalvusMesh(object):
         return self.points.shape[2]
 
     def get_shape_order(self):
-        return np.round(self.n_gll_points ** (1 / self.dimensions)) - 1
+        return int(np.round(self.n_gll_points ** (1 / self.dimensions)) - 1)
 
     def get_nelem(self):
         return self.points.shape[0]
