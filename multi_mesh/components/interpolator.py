@@ -1095,7 +1095,8 @@ def map_to_sphere(mesh):
     z[r > 0] = z[r > 0] * r_earth * rad_1D[r > 0] / r[r > 0]
 
 
-def get_element_weights(gll_points, shape_order, centroid_tree, points):
+def get_element_weights(gll_points, shape_order, centroid_tree, points,
+                        nelem_to_search=25, tolerance=1.05, snap_to_nearest=False):
     """
     A function to figure out inside which element the point to be
     interpolated is. In addition, it gives the interpolation coefficients
@@ -1109,7 +1110,6 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points):
     :return: the enclosing elements and interpolation weights
     """
     global _get_coeffs
-    nelem_to_search = 25
 
     def _get_coeffs(point_indices):
         _, nearest_elements = centroid_tree.query(
@@ -1122,7 +1122,8 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points):
             returns the element_id and coefficients for new_points[index]
             returns -1 for index when nothing is found
             """
-
+            max_ref_coord_val = 10e9
+            max_ref_element_num = 0
             for element in nearest_elements[element_num]:
                 # get element gll_points
                 gll_points_elem = np.asfortranarray(
@@ -1136,9 +1137,14 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points):
 
                 # tolerance of 3%
                 if np.any(np.isnan(ref_coord)):
+                    print("nan found")
                     continue
 
-                if np.all(np.abs(ref_coord) < 1.03):
+                if np.max(np.abs(ref_coord)) < np.max(np.abs(max_ref_coord_val)):
+                       max_ref_coord_val = ref_coord
+                       max_ref_element_num = element
+
+                if np.all(np.abs(ref_coord) < tolerance):
                     coeffs = get_coefficients(
                         shape_order,
                         0,
@@ -1147,8 +1153,23 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points):
                         3,
                     )
                     return element, coeffs
-            # return weights zero if nothing found
-            return -1, np.zeros((shape_order + 1) ** 3)
+            if snap_to_nearest:
+                # clip max values
+                max_ref_coord_val = np.clip(max_ref_coord_val, -1.02, 1.02)
+
+                coeffs = get_coefficients(
+                        shape_order,
+                        0,
+                        0,
+                        np.asfortranarray(max_ref_coord_val, dtype=np.float64),
+                        3,
+                    )
+
+                # return weights zero if nothing found
+                return max_ref_element_num, coeffs
+            else:
+                # Return -1 and zeros for the missing values
+                return -1, np.zeros((shape_order + 1) ** 3)
 
         a = np.vectorize(
             check_inside, signature="(),()->(),(n)", otypes=[int, float]
@@ -1156,13 +1177,13 @@ def get_element_weights(gll_points, shape_order, centroid_tree, points):
         return a(point_indices, element_num)
 
     # Split array in chunks
-    num_processes = multiprocessing.cpu_count()
-    n = 50 * num_processes
+    num_processes = multiprocessing.cpu_count() / 2
+    n = int(num_processes)
     task_list = np.array_split(np.arange(len(points)), n)
 
     elems = []
     coeffs = []
-    with multiprocessing.Pool(num_processes) as pool:
+    with multiprocessing.Pool(n) as pool:
         with tqdm(
             total=len(task_list),
             bar_format="{l_bar}{bar}[{elapsed}<{remaining},"
