@@ -10,9 +10,7 @@ class SalvusMesh(object):
     and do so faster and more reliably than UnstructuredMesh.from_h5()
     """
 
-    def __init__(
-        self, filename: Union[str, pathlib.Path], fast_mode: bool = True
-    ):
+    def __init__(self, filename: Union[str, pathlib.Path], fast_mode: bool = True):
         """
         Opens the h5py file and reads a few mandatory values into memory
         and there are also two optional dictionaries to build.
@@ -31,10 +29,7 @@ class SalvusMesh(object):
             self.dimensions = self.get_dimensions()
             self.shape_order = self.get_shape_order()
             self.global_strings = self.get_global_strings()
-            self.elemental_parameter_indices = (
-                self.get_elemental_parameter_indices()
-            )
-            print(self.elemental_parameter_indices)
+            self.elemental_parameter_indices = self.get_elemental_parameter_indices()
             self.nodal_parameter_indices = self.get_nodal_parameter_indices()
             if not fast_mode:
                 self.elemental_fields = self.get_elemental_fields()
@@ -50,7 +45,7 @@ class SalvusMesh(object):
         return self.points.shape[2]
 
     def get_shape_order(self):
-        return np.round(self.n_gll_points ** (1 / self.dimensions)) - 1
+        return int(np.round(self.n_gll_points ** (1 / self.dimensions)) - 1)
 
     def get_nelem(self):
         return self.points.shape[0]
@@ -135,9 +130,7 @@ class SalvusMesh(object):
                 )
             else:
 
-                ds["MODEL"].attrs.create(
-                    name=name, data=value, dtype=np.bytes_
-                )
+                ds["MODEL"].attrs.create(name=name, data=value, dtype=np.bytes_)
             self.update_global_strings(ds)
 
     def attach_field(
@@ -175,15 +168,11 @@ class SalvusMesh(object):
                     ds["MODEL/data"][:, ind, :] = data
                     print(f"Attached field {name} to mesh")
                 else:
-                    raise ValueError(
-                        "Currently we only attach existing fields"
-                    )
+                    raise ValueError("Currently we only attach existing fields")
             if elemental_field:
                 if name in self.elemental_parameter_indices:
                     ind = self.elemental_parameter_indices.index(name)
                     ds["MODEL/element_data"][:, ind] = data
                     print(f"Attached elemental field {name} to mesh")
                 else:
-                    raise ValueError(
-                        "Currently we only attach existing fields"
-                    )
+                    raise ValueError("Currently we only attach existing fields")
